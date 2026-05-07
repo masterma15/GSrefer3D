@@ -1,0 +1,60 @@
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+env/
+venv/
+.env
+.ipynb_checkpoints
+*.log
+*.pkl
+
+# Build / compiled artifacts
+build/
+dist/
+*.egg-info/
+*.obj
+*.pdb
+*.exe
+*.dll
+
+# Editor / IDE
+.cursorignore
+.cursorindexingignore
+.vscode/
+.idea/
+
+# 3DGS data and outputs
+gaussian-splatting/gaussian-splatting/data*/
+gaussian-splatting/gaussian-splatting/output/
+gaussian-splatting/gaussian-splatting/colmap-x64-windows-cuda/
+gaussian-splatting/gaussian-splatting/viewers/bin/
+gaussian-splatting/gaussian-splatting/submodules/**/build/
+gaussian-splatting/gaussian-splatting/assets/*.gif
+
+# RoboRefer models and weights
+RoboRefer-main/weights/
+RoboRefer-main/RoboRefer-2B-SFT/llm/model.safetensors
+RoboRefer-main/RoboRefer-2B-SFT/vision_tower/
+RoboRefer-main/RoboRefer-2B-SFT/depth_tower/
+RoboRefer-main/RoboRefer-2B-SFT/mm_projector/
+RoboRefer-main/RoboRefer-2B-SFT/depth_projector/
+RoboRefer-main/RoboRefer-2B-SFT/runs/
+RoboRefer-main/**/checkpoints/
+RoboRefer-main/**/*.safetensors
+RoboRefer-main/**/*.pth
+RoboRefer-main/**/*.pt
+RoboRefer-main/**/*.bin
+
+# RefSpatial benchmark data
+RefSpatial-Expand-Bench/.cache/
+RefSpatial-Expand-Bench/data/
+RefSpatial-Expand-Bench/Location/image/
+RefSpatial-Expand-Bench/Placement/image/
+
+# Databases / large intermediates
+**/*.db
+**/images.bin
+**/points3D.bin
+*.parquet
+
