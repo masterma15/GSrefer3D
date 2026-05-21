@@ -1,5 +1,10 @@
-# Local PDF extract cache (large; use docs/mil_cv_selected/ for commits)
+# Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
+docs/*
+!docs/UPSTREAM_SETUP.md
+!docs/depth_compare_batch.json
+!docs/results_2d_eval.json
 docs/mil_cv_assets/
+docs/mil_cv_selected/
 
 __pycache__/
 *.py[cod]

@@ -17,7 +17,7 @@ Create a public repo named `<your-username>/<your-username>` and add a short `RE
 ## Before each push
 
 1. `git status` — no `*.pth`, `*.safetensors`, `test2/runs/`, `training_data/**/image/`
-2. README numbers match `docs/results_table.md`
+2. README Highlights match `docs/results_2d_eval.json` / `docs/depth_compare_batch.json`
 3. `demo/pipeline.png` / `compare_2d.png` — optional; keep under ~2 MB each
 
 ## Thin-repo maintenance
@@ -27,7 +27,7 @@ Create a public repo named `<your-username>/<your-username>` and add a short `RE
 | New bridge script | `git add bridge/` |
 | Upstream version bump | Update `docs/UPSTREAM_SETUP.md` commit hash / branch note only |
 | New RoboRefer patch | Extend `patches/roborefer/INTEGRATION.md` |
-| New result run | Update `docs/results_table.md`, not raw run folders |
+| New result run | Update public JSON under `docs/`, not raw run folders |
 
 ## Issues / Discussions
 
