@@ -17,14 +17,14 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 | Hold-out | Double-sided tape (not in SFT) — qualitative overlay |
 | RefSpatial-Expand | Base **50.21%** Location (repro.); data2 LoRA **45.64%** (out-of-domain) |
 
-Full tables: [`docs/results_table.md`](docs/results_table.md) · Pipeline figure: [`docs/pipeline.md`](docs/pipeline.md)
+Experiment JSON: [`docs/results_2d_eval.json`](docs/results_2d_eval.json) · [`docs/depth_compare_batch.json`](docs/depth_compare_batch.json)
 
 ## Repository layout (what is in Git)
 
 | Path | In Git? | Role |
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
-| [`docs/`](docs/) | **Yes** | Results, resume bullets, experiment index |
+| `docs/` (public) | **3 files only** | Setup + depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
 | [`3DGS/environment-envGS.yml`](3DGS/environment-envGS.yml) | **Yes** | Conda env hint |
@@ -69,18 +69,17 @@ python bridge/eval_2d_vs_gt.py --out docs/results_2d_eval.json
 
 ## License
 
-- **MIT** — `bridge/`, `docs/`, `patches/`, `3DGS/render.py`, and project README ([LICENSE](LICENSE)).
+- **MIT** — `bridge/`, public `docs/` files listed above, `patches/`, `3DGS/render.py`, and project README ([LICENSE](LICENSE)).
 - **Upstream** — 3DGS (Inria non-commercial research license), RoboRefer and others — see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Citation
 
 If you use this integration, cite the upstream 3DGS and RoboRefer papers. This repository is a student research workspace, not an official release of either project.
 
-## Docs index
+## Public data files
 
-| Doc | Use |
-|-----|-----|
-| [docs/UPSTREAM_SETUP.md](docs/UPSTREAM_SETUP.md) | Clone & weights |
-| [docs/results_table.md](docs/results_table.md) | Numbers for resume |
-| [docs/RESUME_AND_INTERVIEW.md](docs/RESUME_AND_INTERVIEW.md) | Interview cheat sheet |
-| [docs/pipeline.md](docs/pipeline.md) | Mermaid system diagram |
+| File | Use |
+|------|-----|
+| [docs/UPSTREAM_SETUP.md](docs/UPSTREAM_SETUP.md) | Clone upstream & download weights |
+| [docs/results_2d_eval.json](docs/results_2d_eval.json) | Per-object Base/LoRA 2D L2 vs GT |
+| [docs/depth_compare_batch.json](docs/depth_compare_batch.json) | Depth ablation (20 groups) |

@@ -25,7 +25,9 @@ SOFTWARE.
 This license applies to original work in this repository under:
 
   bridge/
-  docs/          (original markdown written for this project)
+  docs/UPSTREAM_SETUP.md
+  docs/depth_compare_batch.json
+  docs/results_2d_eval.json
   patches/       (integration notes and patch files)
   3DGS/render.py
   demo/*.mmd, demo/README.md

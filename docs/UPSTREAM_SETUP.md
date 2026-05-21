@@ -1,13 +1,13 @@
 # 上游依赖安装（本地克隆，不进 Git）
 
-本仓库采用 **薄仓库（thin repo）** 策略：Git 只保留 `bridge/`、文档、补丁与 `3DGS/render.py`；**完整** 3DGS 与 RoboRefer 在本地克隆。
+本仓库采用 **薄仓库（thin repo）** 策略：Git 只保留 `bridge/`、补丁、`3DGS/render.py`，以及 `docs/` 下 **3 个公开文件**（本文件 + 两份实验 JSON）。简历、飞书索引、`results_table.md` 等留在本地，不进 GitHub。
 
 ## 推荐目录布局
 
 ```text
 3DGS-VLM/                    ← 本 Git 仓库
   bridge/
-  docs/
+  docs/                      ← 仅 UPSTREAM_SETUP + *.json 公开；其余本地自留
   patches/
   3DGS/
     render.py                ← 本仓库提供
@@ -93,18 +93,8 @@ python bridge/run_bridge_e2e.py \
   --snap --skip-render --url http://127.0.0.1:25547
 ```
 
-## 4. 若你曾把整个 RoboRefer / 旧版 gaussian-splatting 提交进 Git
 
-开源前建议从索引移除（保留本地文件）：
-
-```bash
-git rm -r --cached RoboRefer-main/ gaussian-splatting/ 2>/dev/null
-git rm -r --cached 3DGS/gaussian-splatting/ 3DGS/test2/ 2>/dev/null
-```
-
-然后只 `git add bridge/ docs/ patches/ 3DGS/render.py 3DGS/environment-envGS.yml demo/ README.md LICENSE`
-
-## 5. RefSpatial-Expand-Bench（可选）
+## 4. RefSpatial-Expand-Bench（可选）
 
 ```bash
 git clone https://huggingface.co/datasets/BAAI/RefSpatial-Bench RefSpatial-Expand-Bench
