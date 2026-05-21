@@ -1,4 +1,4 @@
-# Integration patches (3DGS-VLM)
+# Integration patches (GSrefer3D)
 
 Upstream trees are **not** vendored in full in this Git repository. Apply the changes below after cloning [3D Gaussian Splatting](https://github.com/graphdeco-inria/gaussian-splatting) and [RoboRefer](https://github.com/Zhoues/RoboRefer).
 

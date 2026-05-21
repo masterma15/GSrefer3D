@@ -12,10 +12,10 @@ Requires: pip install pillow
 Example::
 
   python bridge/overlay_predictions_rgb.py \\
-    --root E:/3DGS-VLM/3DGS/test2 \\
-    --predictions E:/3DGS-VLM/3DGS/test2/predictions.json \\
-    --fused E:/3DGS-VLM/3DGS/test2/fused.json \\
-    --out-dir E:/3DGS-VLM/3DGS/test2/overlays_rgb
+    --root E:/GSrefer3D/3DGS/test2 \\
+    --predictions E:/GSrefer3D/3DGS/test2/predictions.json \\
+    --fused E:/GSrefer3D/3DGS/test2/fused.json \\
+    --out-dir E:/GSrefer3D/3DGS/test2/overlays_rgb
 """
 from __future__ import annotations
 

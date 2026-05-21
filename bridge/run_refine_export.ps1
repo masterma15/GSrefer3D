@@ -1,6 +1,6 @@
 # Refine all objects then export data2_sft. Run in Windows envGS from repo root.
 $ErrorActionPreference = "Stop"
-Set-Location "E:\3DGS-VLM"
+Set-Location (Join-Path $PSScriptRoot "..")
 
 $dirs = Get-ChildItem "training_data\data2_*" -Directory |
     Where-Object { $_.Name -ne "data2_sft" }

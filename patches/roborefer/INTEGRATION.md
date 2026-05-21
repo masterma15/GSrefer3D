@@ -1,6 +1,6 @@
 # RoboRefer integration changes
 
-Clone upstream first, then apply **four small edits**. No need to fork the entire `llava/` tree into 3DGS-VLM Git.
+Clone upstream first, then apply **four small edits**. No need to fork the entire `llava/` tree into GSrefer3D Git.
 
 ## 1. `llava/data/datasets_mixture.py`
 
@@ -13,7 +13,7 @@ Rename illegal variables `2D_*` / `3D_*` to `ds_2d_*` / `ds_3d_*` (same `dataset
 Add inside `register_datasets_mixtures()`:
 
 ```python
-    ### data2 desktop scene (custom Location SFT, 3DGS-VLM bridge export)
+    ### data2 desktop scene (custom Location SFT, GSrefer3D bridge export)
     data2_location = Dataset(
         dataset_name="data2_location",
         dataset_type="spatialdataset",

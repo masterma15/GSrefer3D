@@ -15,7 +15,7 @@ with markers injected into ``point_cloud/iteration_35000/point_cloud.ply`` (or `
 
 Run from repo root (or pass absolute paths), in the same conda env as ``render.py`` / ``fuse`` (e.g. envGS)::
 
-  cd E:/3DGS-VLM
+  cd E:/GSrefer3D
   python bridge/run_bridge_e2e.py \\
     --model-path 3DGS/gaussian-splatting/output/data2 \\
     --custom-views-out 3DGS/test2 \\

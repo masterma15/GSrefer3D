@@ -2,7 +2,8 @@
 # Batch mask (Grounding DINO + SAM2) for all data2 objects. Run in WSL roborefer env.
 set -euo pipefail
 
-ROOT="/mnt/e/3DGS-VLM"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # GroundingDINO: pip install addict timm yapf supervision pycocotools
