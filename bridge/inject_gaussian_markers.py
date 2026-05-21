@@ -41,6 +41,21 @@ def _nearest_vertex(p: np.ndarray, xyz: np.ndarray) -> tuple[np.ndarray, float]:
     return xyz[i].copy(), float(d[i])
 
 
+def _surface_push(p: np.ndarray, xyz: np.ndarray, push: float, k: int) -> np.ndarray:
+    """Nudge ``p`` along (p - mean(nearest k points)) to move markers slightly out of dense interiors."""
+    if push <= 0.0:
+        return p
+    kk = min(max(k, 4), len(xyz))
+    d = np.linalg.norm(xyz - p.reshape(1, 3), axis=1)
+    ii = np.argpartition(d, kk - 1)[:kk]
+    m = xyz[ii].mean(axis=0)
+    v = p - m
+    norm = float(np.linalg.norm(v))
+    if norm < 1e-8:
+        return p
+    return p + (push / norm) * v
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Inject marker Gaussians into 3DGS point_cloud.ply")
     ap.add_argument("--ply", type=Path, required=True, help="Source point_cloud.ply (base + markers)")
@@ -59,10 +74,18 @@ def main() -> None:
     ap.add_argument("--x", type=float, default=None)
     ap.add_argument("--y", type=float, default=None)
     ap.add_argument("--z", type=float, default=None)
-    ap.add_argument("--marker-count", type=int, default=50)
-    ap.add_argument("--log-scale", type=float, default=-3.5)
-    ap.add_argument("--opacity-sigmoid", type=float, default=0.99)
-    ap.add_argument("--jitter", type=float, default=0.012)
+    ap.add_argument("--marker-count", type=int, default=50,
+                    help="Number of marker Gaussians per fused point (more = denser blob).")
+    ap.add_argument(
+        "--log-scale",
+        type=float,
+        default=-3.5,
+        help="Log of Gaussian scale (3DGS convention); LESS negative => LARGER splats (e.g. -2.2 vs -3.5).",
+    )
+    ap.add_argument("--opacity-sigmoid", type=float, default=0.99,
+                    help="Target opacity after sigmoid; higher = more opaque markers.")
+    ap.add_argument("--jitter", type=float, default=0.012,
+                    help="Std-dev of jitter around center in scene units (slightly bigger cloud).")
     ap.add_argument("--seed", type=int, default=0, help="RNG seed for marker jitter.")
     ap.add_argument(
         "--max-resnap-dist",
@@ -78,6 +101,30 @@ def main() -> None:
     ap.add_argument("--output", type=Path, default=None)
     ap.add_argument("--all-candidates", action="store_true",
                     help="Inject ALL candidate points from fused.json (green=inlier, yellow=outlier, red=fused)")
+    ap.add_argument(
+        "--surface-push",
+        type=float,
+        default=0.0,
+        metavar="M",
+        help=(
+            "After resnap, shift center by M meters along (p - mean(nearest-k vertices)) "
+            "to pull markers out of the interior of thick objects (try 0.02–0.08)."
+        ),
+    )
+    ap.add_argument(
+        "--surface-push-k",
+        type=int,
+        default=48,
+        help="Neighbour count for --surface-push (default 48).",
+    )
+    ap.add_argument(
+        "--marker-offset",
+        type=float,
+        nargs=3,
+        default=(0.0, 0.0, 0.0),
+        metavar=("DX", "DY", "DZ"),
+        help="Extra world-space translation added to marker center after resnap/push (scene units).",
+    )
     args = ap.parse_args()
 
     if args.fused_json is not None:
@@ -174,6 +221,8 @@ def main() -> None:
             new_rows.extend(_make_marker_rows(pw, rgb, 20, args.jitter * 0.7, rng))
         # Fused point in red (larger cluster)
         fused_p = np.array(fused["P_world"], dtype=np.float64)
+        fused_p = _surface_push(fused_p, xyz, float(args.surface_push), int(args.surface_push_k))
+        fused_p = fused_p + np.asarray(args.marker_offset, dtype=np.float64).reshape(3)
         new_rows.extend(_make_marker_rows(fused_p, [0.98, 0.08, 0.06], args.marker_count, args.jitter, rng))
         print(f"[info] injected {len(candidates)} candidates + 1 fused point "
               f"({len(inlier_set)} inliers green, {len(candidates)-len(inlier_set)} outliers yellow, fused red)")
@@ -187,6 +236,11 @@ def main() -> None:
                 print(f"[info] resnap distance {rdist:.6f} > --max-resnap-dist {maxd:g}; keeping json center (no snap).")
             else:
                 p0 = p_snapped
+        p0 = _surface_push(p0, xyz, float(args.surface_push), int(args.surface_push_k))
+        off = np.asarray(args.marker_offset, dtype=np.float64).reshape(3)
+        p0 = p0 + off
+        if float(args.surface_push) > 0.0 or np.any(off != 0.0):
+            print(f"[info] marker center after push/offset {p0.tolist()}")
         new_rows.extend(_make_marker_rows(p0, [0.98, 0.08, 0.06], args.marker_count, args.jitter, rng))
 
     extra = np.array(new_rows, dtype=data.dtype)

@@ -1,0 +1,33 @@
+%%{init: {'flowchart': {'nodeSpacing': 8, 'rankSpacing': 20, 'padding': 4}}}%%
+flowchart TB
+  subgraph IN["输入"]
+    direction LR
+    I1["RGB"] ~~~ I2["Depth 图"] ~~~ I3["文本 prompt"]
+  end
+
+  subgraph ENC["编码"]
+    direction LR
+    E1["SigLIP<br/>vision_tower"] ~~~ E2["Depth-Anything<br/>depth_tower"]
+  end
+
+  subgraph PROJ["对齐"]
+    direction LR
+    P1["mm_projector<br/>mlp↓3×3"] ~~~ P2["depth_projector<br/>mlp↓3×3"]
+  end
+
+  subgraph LLM["语言"]
+    L1["Qwen2 ~2B<br/>+ 视觉/深度 token"]
+  end
+
+  OUT["输出 [(nx,ny)] 0–1"]
+
+  I1 --> E1 --> P1 --> L1
+  I2 --> E2 --> P2 --> L1
+  I3 --> L1
+  L1 --> OUT
+
+  style IN fill:#F5F5F5,stroke:#9E9E9E,color:#1a1a1a
+  style ENC fill:#F3E8FF,stroke:#9B7EDE,color:#1a1a1a
+  style PROJ fill:#EDE7F6,stroke:#7E57C2,color:#1a1a1a
+  style LLM fill:#E3F2FD,stroke:#42A5F5,color:#1a1a1a
+  style OUT fill:#FFF9C4,stroke:#FBC02D,color:#1a1a1a
