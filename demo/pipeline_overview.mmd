@@ -1,0 +1,38 @@
+%%{init: {'flowchart': {'nodeSpacing': 12, 'rankSpacing': 28, 'padding': 6, 'htmlLabels': true}}}%%
+flowchart LR
+  subgraph G1["① 3DGS 场景"]
+    direction TB
+    A1["照片/COLMAP"] --> A2["train.py"] --> A3["point_cloud.ply"]
+  end
+
+  subgraph G2["② 多视角 + VLM"]
+    direction TB
+    B1["render 72v"] --> B2["rgb+depth_raw+cam"]
+    B2 --> B3["RoboRefer API"]
+    B3 --> B4["predictions 2D"]
+    A3 -.-> B1
+  end
+
+  subgraph G3["③ bridge 3D"]
+    direction TB
+    C1["unproject"] --> C2["RANSAC fuse"] --> C3["P_world"]
+    B4 --> C1
+    B2 -.-> C1
+    A3 -.-> C2
+    C3 --> C4["overlay / SIBR"]
+  end
+
+  subgraph G4["④ 训练·评"]
+    direction TB
+    D1["→SFT 469"] --> D2["LoRA"] --> D3["merged"]
+    D3 -.-> B3
+    C3 --> D1
+    D2 --> D4["域内2D / Expand"]
+  end
+
+  G1 --> G2 --> G3 --> G4
+
+  style G1 fill:#E8F4FC,stroke:#5B9BD5,color:#1a1a1a
+  style G2 fill:#F3E8FF,stroke:#9B7EDE,color:#1a1a1a
+  style G3 fill:#E8F5E9,stroke:#66BB6A,color:#1a1a1a
+  style G4 fill:#FFF4E5,stroke:#F0A04B,color:#1a1a1a

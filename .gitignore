@@ -1,3 +1,6 @@
+# Local PDF extract cache (large; use docs/mil_cv_selected/ for commits)
+docs/mil_cv_assets/
+
 __pycache__/
 *.py[cod]
 *.so
@@ -24,22 +27,45 @@ dist/
 .vscode/
 .idea/
 
-# 3DGS data and outputs
+# --- Vendored upstream (clone locally; see docs/UPSTREAM_SETUP.md) ---
+RoboRefer-main/
+3DGS/gaussian-splatting/
+GroundingDINO/
+gaussian-splatting/
+
+# 3DGS data and outputs (legacy path + 3DGS/)
 gaussian-splatting/gaussian-splatting/data*/
 gaussian-splatting/gaussian-splatting/output/
 gaussian-splatting/gaussian-splatting/colmap-x64-windows-cuda/
 gaussian-splatting/gaussian-splatting/viewers/bin/
 gaussian-splatting/gaussian-splatting/submodules/**/build/
 gaussian-splatting/gaussian-splatting/assets/*.gif
+3DGS/gaussian-splatting/data*/
+3DGS/gaussian-splatting/output/
+3DGS/gaussian-splatting/colmap-x64-windows-cuda/
+3DGS/gaussian-splatting/viewers/bin/
+3DGS/gaussian-splatting/submodules/**/build/
+3DGS/test*/
+3DGS/**/runs/
 
-# RoboRefer models and weights
+# Training / eval artifacts
+training_data/
+application_pack/
+resume_*.pdf
+
+# RoboRefer models and weights (repo root)
+weights/*.pth
+weights/**/*.pth
+RoboRefer-2B-SFT/llm/model.safetensors
+RoboRefer-2B-SFT/vision_tower/
+RoboRefer-2B-SFT/depth_tower/
+RoboRefer-2B-SFT/mm_projector/
+RoboRefer-2B-SFT/depth_projector/
+RoboRefer-2B-SFT/runs/
+RoboRefer-2B-SFT/.cache/
+# Legacy paths under RoboRefer-main (if any copies remain)
 RoboRefer-main/weights/
-RoboRefer-main/RoboRefer-2B-SFT/llm/model.safetensors
-RoboRefer-main/RoboRefer-2B-SFT/vision_tower/
-RoboRefer-main/RoboRefer-2B-SFT/depth_tower/
-RoboRefer-main/RoboRefer-2B-SFT/mm_projector/
-RoboRefer-main/RoboRefer-2B-SFT/depth_projector/
-RoboRefer-main/RoboRefer-2B-SFT/runs/
+RoboRefer-main/RoboRefer-2B-SFT/
 RoboRefer-main/**/checkpoints/
 RoboRefer-main/**/*.safetensors
 RoboRefer-main/**/*.pth

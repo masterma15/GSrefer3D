@@ -5,13 +5,13 @@ Prerequisite (manual): start RoboRefer ``api.py`` in WSL/Linux; this script only
 
 Artifacts for each run live under::
 
-    <custom-views-out>/runs/<run_id>/{predictions.json,fused.json,marker.ply,overlays_rgb/,run_manifest.json}
+    <custom-views-out>/runs/<run_id>/{predictions.json,fused.json,marker.ply,overlays_rgb/,run_manifest.json,prompt.txt}
 
 A full copy of the trained model (for SIBR) is written to::
 
     <model-path.parent>/<model-path.name>_runs/<run_id>/
 
-with markers injected into ``point_cloud/iteration_35000/point_cloud.ply`` inside that copy only.
+with markers injected into ``point_cloud/iteration_35000/point_cloud.ply`` (or ``iteration_36000`` if snap base would collide).
 
 Run from repo root (or pass absolute paths), in the same conda env as ``render.py`` / ``fuse`` (e.g. envGS)::
 
@@ -39,8 +39,9 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 BRIDGE = REPO / "bridge"
 
-# Fixed per user preference (SIBR)
+# Fixed per user preference (SIBR); if snap ply lives here too, use _INJECT_COLLISION_FALLBACK.
 _INJECT_ITER_DIR = "iteration_35000"
+_INJECT_COLLISION_FALLBACK = "iteration_36000"
 
 
 def _abs(p: Path) -> Path:
@@ -169,6 +170,7 @@ def _stage_inject(
     fused_json: Path,
     out_iteration_dir: Path,
     all_candidates: bool,
+    extra_args: list[str] | None = None,
 ) -> None:
     cmd = [
         sys.executable,
@@ -182,7 +184,28 @@ def _stage_inject(
     ]
     if all_candidates:
         cmd.append("--all-candidates")
+    if extra_args:
+        cmd.extend(extra_args)
     _subprocess_rc(cmd, cwd=REPO)
+
+
+def _print_sibr_footer(*, model_copy_dir: Path, inject_iteration_folder: str) -> None:
+    """Print copy-paste PowerShell lines for SIBR using paths from this run."""
+    viewers_bin = (REPO / "3DGS" / "gaussian-splatting" / "viewers" / "bin").resolve()
+    model_m = model_copy_dir.resolve()
+    vb = str(viewers_bin)
+    mm = str(model_m)
+    iter_suffix = inject_iteration_folder.removeprefix("iteration_")
+    sep = "-" * 68
+    print(f"\n{sep}")
+    print("下一步：用 SIBR 查看刚生成的模型副本（PowerShell 中复制执行以下两行）")
+    print(sep)
+    print(f'Set-Location "{vb}"')
+    print(f'.\\SIBR_gaussianViewer_app.exe -m "{mm}"')
+    print(
+        f"\n在 SIBR 界面中将 point_cloud 的 iteration 选为 {iter_suffix} "
+        f"（目录名 {inject_iteration_folder}），即可看到注入的红色标记点。\n"
+    )
 
 
 def main() -> None:
@@ -230,6 +253,31 @@ def main() -> None:
 
     ap.add_argument("--inject-all-candidates", action="store_true",
                     help="Pass --all-candidates to inject_gaussian_markers.py (debug overlay in Gaussians).")
+
+    ap.add_argument(
+        "--inject-surface-push",
+        type=float,
+        default=0.0,
+        metavar="M",
+        help=(
+            "Meters (scene units): nudge injected marker center out of dense plush interior "
+            "(0 default; try 0.03–0.1 if markers are invisible in SIBR)."
+        ),
+    )
+    ap.add_argument("--inject-surface-push-k", type=int, default=48, help="k neighbours for inject surface push.")
+    ap.add_argument(
+        "--inject-marker-offset",
+        type=float,
+        nargs=3,
+        default=None,
+        metavar=("DX", "DY", "DZ"),
+        help="Extra world translation for marker center (scene units), e.g. 0 0.06 0 to lift along +Y.",
+    )
+    ap.add_argument("--inject-log-scale", type=float, default=None,
+                    help="Override marker --log-scale (less negative = larger splats).")
+    ap.add_argument("--inject-marker-count", type=int, default=None, help="Override number of marker Gaussians.")
+    ap.add_argument("--inject-opacity", type=float, default=None, help="Override --opacity-sigmoid for markers.")
+    ap.add_argument("--inject-jitter", type=float, default=None, help="Override marker position jitter.")
 
     args = ap.parse_args()
 
@@ -281,6 +329,16 @@ def main() -> None:
     }
     with (run_dir / "run_manifest.json").open("w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    trace = run_dir / "prompt.txt"
+    trace.write_text(
+        "# 溯源：与本 run 的 RoboRefer --prompt 完全一致（UTF-8）\n"
+        f"# run_id: {run_id}\n"
+        f"# url: {args.url}\n"
+        "# ----------------------------------------\n"
+        f"{args.prompt}\n",
+        encoding="utf-8",
+    )
 
     # --- B render ---
     if not args.skip_render:
@@ -355,6 +413,8 @@ def main() -> None:
     else:
         print("[e2e] skip-overlay")
 
+    inject_iteration_folder: str | None = None
+
     # --- copy model + inject ---
     if not args.no_model_bundle:
         if model_copy_dir.exists():
@@ -362,23 +422,56 @@ def main() -> None:
         print(f"[e2e] copying model tree -> {model_copy_dir} (may take a while)…")
         shutil.copytree(model_path, model_copy_dir, symlinks=False)
         base_in_copy = model_copy_dir / rel_ply
-        inject_out = model_copy_dir / "point_cloud" / _INJECT_ITER_DIR
+        if rel_ply.parent.name == _INJECT_ITER_DIR:
+            inject_folder_name = _INJECT_COLLISION_FALLBACK
+            print(
+                f"[e2e] inject -> {inject_folder_name} "
+                f"(snap base is {_INJECT_ITER_DIR}/; avoid same-file overwrite on Windows)",
+            )
+        else:
+            inject_folder_name = _INJECT_ITER_DIR
+        inject_out = model_copy_dir / "point_cloud" / inject_folder_name
+        inject_iteration_folder = inject_out.name
         if not base_in_copy.is_file():
             raise SystemExit(f"copied base ply missing: {base_in_copy}")
+        inj_extra: list[str] = [
+            "--surface-push",
+            str(args.inject_surface_push),
+            "--surface-push-k",
+            str(args.inject_surface_push_k),
+        ]
+        if args.inject_marker_offset is not None:
+            inj_extra.extend(["--marker-offset", *[str(x) for x in args.inject_marker_offset]])
+        if args.inject_log_scale is not None:
+            inj_extra.extend(["--log-scale", str(args.inject_log_scale)])
+        if args.inject_marker_count is not None:
+            inj_extra.extend(["--marker-count", str(args.inject_marker_count)])
+        if args.inject_opacity is not None:
+            inj_extra.extend(["--opacity-sigmoid", str(args.inject_opacity)])
+        if args.inject_jitter is not None:
+            inj_extra.extend(["--jitter", str(args.inject_jitter)])
         _stage_inject(
             base_ply_in_copy=base_in_copy,
             fused_json=fused_path,
             out_iteration_dir=inject_out,
             all_candidates=args.inject_all_candidates,
+            extra_args=inj_extra,
         )
+        manifest["inject_marker_options"] = {
+            "surface_push": args.inject_surface_push,
+            "surface_push_k": args.inject_surface_push_k,
+            "marker_offset": list(args.inject_marker_offset) if args.inject_marker_offset is not None else None,
+            "extra_cli": inj_extra,
+        }
         manifest["model_copy_dir"] = str(model_copy_dir).replace("\\", "/")
+        manifest["inject_iteration_dir"] = inject_iteration_folder
         manifest["sibr_hint"] = (
             f'Set-Location "{REPO / "3DGS" / "gaussian-splatting" / "viewers" / "bin"}" ; '
             f'.\\SIBR_gaussianViewer_app.exe -m "{model_copy_dir}"'
         )
-        iter_suffix = _INJECT_ITER_DIR.removeprefix("iteration_")
+        iter_suffix = inject_iteration_folder.removeprefix("iteration_")
         manifest["sibr_iteration_note"] = (
-            f"In SIBR pick point_cloud iteration {iter_suffix} (folder {_INJECT_ITER_DIR})."
+            f"In SIBR pick point_cloud iteration {iter_suffix} (folder {inject_iteration_folder})."
         )
         with (run_dir / "run_manifest.json").open("w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -387,9 +480,12 @@ def main() -> None:
 
     print("\n[e2e] done.")
     print(f"  run_dir       = {run_dir}")
-    if not args.no_model_bundle:
+    if not args.no_model_bundle and inject_iteration_folder is not None:
         print(f"  model_copy    = {model_copy_dir}")
-        print(f"  SIBR -m       = {model_copy_dir}")
+        _print_sibr_footer(model_copy_dir=model_copy_dir, inject_iteration_folder=inject_iteration_folder)
+    elif args.no_model_bundle:
+        print("  (未复制模型) 融合点可打开 MeshLab / CloudCompare 查看:")
+        print(f"    {marker_path.resolve()}")
 
 
 if __name__ == "__main__":

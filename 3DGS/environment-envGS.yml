@@ -1,0 +1,32 @@
+# 本仓库 Windows 实际使用的 3DGS + bridge 环境（conda 名：envGS）
+# 与上游 gaussian-splatting/environment.yml（Python 3.7 / torch 1.12）不同，勿混用。
+#
+# 创建（在 3DGS/ 目录）：
+#   conda env create -f environment-envGS.yml
+#   conda activate envGS
+# 然后按 安装命令.txt / 运行训练命令.txt 编译安装 submodules 三个扩展。
+#
+# bridge 训练数据过滤（filter_views_3dgs.py）需要 scipy（射线透射 KD-tree）。
+
+name: envGS
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - pip>=22
+  - numpy=2.0.1
+  - scipy=1.13.1
+  - plyfile=1.1
+  - pillow=11.1
+  - tqdm
+  - pytorch=2.4.1
+  - torchvision=0.19.1
+  - torchaudio=2.4.1
+  - pytorch-cuda=11.8
+  - pip:
+    - opencv-python>=4.8
+    - requests>=2.28
+    - joblib>=1.2

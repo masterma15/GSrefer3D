@@ -41,7 +41,8 @@ preserves the old minimal_roborefer_e2e.py behaviour.
 Run this inside the RoboRefer conda env (Linux/WSL recommended):
   conda activate roborefer
   # in one shell:
-  cd RoboRefer-main/API && python api.py --port 25547 ...
+  cd RoboRefer-main/API && python api.py --port 25547
+  # defaults: <repo>/weights/depth_anything_v2_vitl.pth, <repo>/RoboRefer-2B-SFT
   # in another:
   python bridge/roborefer_client.py \
     --root 3DGS/test1 \
