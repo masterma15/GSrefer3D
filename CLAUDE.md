@@ -31,12 +31,12 @@ python gaussian-splatting/convert.py -s gaussian-splatting/data2
 # 训练（-r 4 表示 1/4 分辨率）
 python train.py -s gaussian-splatting/data2 -r 4
 # 渲染多视角（输出到 test2）
-python render.py -m gaussian-splatting/output/data2 --custom_views --output_path E:/3DGS-VLM/3DGS/test2
+python render.py -m gaussian-splatting/output/data2 --custom_views --output_path E:/GSrefer3D/3DGS/test2
 # SIBR 查看器（必须从 bin/ 目录启动，否则 DLL 找不到）
 Set-Location gaussian-splatting/viewers/bin
-.\SIBR_gaussianViewer_app.exe -m "E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2"
+.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2"
 # 加载注入标记的版本（iteration_35000）
-.\SIBR_gaussianViewer_app.exe -m "E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2" --iteration 35000
+.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration 35000
 ```
 
 **注意**：SIBR viewer 必须从 `viewers/bin/` 目录启动（`Set-Location` 后再运行），否则 `sibr_system.dll` 找不到。PowerShell 中 `--iteration` 不会报错，但 `--` 开头的参数在某些 PS 版本中需要用 `cmd /c` 包裹。
@@ -86,7 +86,7 @@ Set-Location gaussian-splatting/viewers/bin
 
 - **平台**：Windows 11 + bash（msys/git-bash）。用 Unix 风格路径（正斜杠、`/dev/null`），但注意 3DGS 的用户命令文件里有 Windows 风格 `cd /d` 和反斜杠，属于历史遗留。
 - **被 `.gitignore` 排除的大体积产物**：`3DGS/gaussian-splatting/data*/`、`output/`、`colmap-x64-windows-cuda/`、`viewers/bin/`、`submodules/**/build/`；`weights/*.pth`、`RoboRefer-2B-SFT/` 下各 tower/projector 与 `*.safetensors/*.pth/*.pt/*.bin`；`RefSpatial-Expand-Bench/data/` 与 `Location/image/`、`Placement/image/`；以及通配的 `**/*.db`、`**/images.bin`、`**/points3D.bin`、`*.parquet`。改这些目录里的东西前先确认是不是本机生成物。
-- **Git 结构**：根仓库在 `master` 分支（commit `f552b52 chore: initial snapshot of 3DGS-VLM project`）。旧的 `gaussian-splatting/` 目录（含嵌套 `.git`）已废弃，3DGS 代码已迁移到 `3DGS/gaussian-splatting/`。
+- **Git 结构**：根仓库在 `master` 分支（commit `f552b52 chore: initial snapshot of GSrefer3D project`）。旧的 `gaussian-splatting/` 目录（含嵌套 `.git`）已废弃，3DGS 代码已迁移到 `3DGS/gaussian-splatting/`。
 
 ## 交互偏好
 
@@ -145,54 +145,54 @@ bridge/pipeline.py              →  上述步骤的编排器
 ```powershell
 # 0) WSL Ubuntu: 起 RoboRefer API server（保持运行）
 conda activate roborefer
-cd /mnt/e/3DGS-VLM/RoboRefer-main/API
+cd /mnt/e/GSrefer3D/RoboRefer-main/API
 python api.py --port 25547 \
-     --depth_model_path "/mnt/e/3DGS-VLM/weights/depth_anything_v2_vitl.pth" \
-     --vlm_model_path "/mnt/e/3DGS-VLM/RoboRefer-2B-SFT"
+     --depth_model_path "/mnt/e/GSrefer3D/weights/depth_anything_v2_vitl.pth" \
+     --vlm_model_path "/mnt/e/GSrefer3D/RoboRefer-2B-SFT"
 
 # 1) Windows envGS: 渲染多视角
 conda activate envGS
-Set-Location E:\3DGS-VLM\3DGS
-python render.py -m gaussian-splatting/output/data2 --custom_views --output_path E:/3DGS-VLM/3DGS/test2
+Set-Location E:\GSrefer3D\3DGS
+python render.py -m gaussian-splatting/output/data2 --custom_views --output_path E:/GSrefer3D/3DGS/test2
 
 # 2) Windows envGS: 批量调 RoboRefer
-Set-Location E:\3DGS-VLM
+Set-Location E:\GSrefer3D
 python bridge/roborefer_client.py `
-    --root E:/3DGS-VLM/3DGS/test2 `
+    --root E:/GSrefer3D/3DGS/test2 `
     --url http://127.0.0.1:25547 `
     --prompt "Please point to the electric shaver." `
-    --output E:/3DGS-VLM/3DGS/test2/predictions.json
+    --output E:/GSrefer3D/3DGS/test2/predictions.json
 
 # 3) Windows envGS: 融合 + snap
 python bridge/fuse_multiview.py `
-    --predictions E:/3DGS-VLM/3DGS/test2/predictions.json `
+    --predictions E:/GSrefer3D/3DGS/test2/predictions.json `
     --inlier-radius 10.0 --min-inv 1e-3 --refine-k 1.75 `
-    --ply E:/3DGS-VLM/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply `
-    --output E:/3DGS-VLM/3DGS/test2/fused.json
+    --ply E:/GSrefer3D/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply `
+    --output E:/GSrefer3D/3DGS/test2/fused.json
 
 # 4) 导出 marker.ply（MeshLab/CloudCompare 叠看）
 python bridge/visualize.py `
-    --fused E:/3DGS-VLM/3DGS/test2/fused.json `
-    --output E:/3DGS-VLM/3DGS/test2/marker.ply
+    --fused E:/GSrefer3D/3DGS/test2/fused.json `
+    --output E:/GSrefer3D/3DGS/test2/marker.ply
 
 # 5) 注入高斯标记（SIBR 可视化）
 python bridge/inject_gaussian_markers.py `
-    --ply E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_30000\point_cloud.ply `
-    --fused-json E:\3DGS-VLM\3DGS\test2\fused.json `
-    --out-iteration-dir E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_35000
+    --ply E:\GSrefer3D\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_30000\point_cloud.ply `
+    --fused-json E:\GSrefer3D\3DGS\test2\fused.json `
+    --out-iteration-dir E:\GSrefer3D\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_35000
 
 # 6) SIBR 查看（必须从 bin/ 目录启动）
-Set-Location E:\3DGS-VLM\3DGS\gaussian-splatting\viewers\bin
-.\SIBR_gaussianViewer_app.exe -m "E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2" --iteration 35000
+Set-Location E:\GSrefer3D\3DGS\gaussian-splatting\viewers\bin
+.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration 35000
 ```
 
 ### 一体化端到端命令（`run_bridge_e2e.py`）
 
-**推荐方式**：一条命令完成渲染 → RoboRefer → 融合 → overlay → 模型复制 + 注入的全流程。在仓库根 `E:\3DGS-VLM` 下运行（`envGS` 环境，WSL RoboRefer API 需提前起好）：
+**推荐方式**：一条命令完成渲染 → RoboRefer → 融合 → overlay → 模型复制 + 注入的全流程。在仓库根 `E:\GSrefer3D` 下运行（`envGS` 环境，WSL RoboRefer API 需提前起好）：
 
 ```powershell
 # 完整流程（含渲染）
-Set-Location E:\3DGS-VLM
+Set-Location E:\GSrefer3D
 python bridge/run_bridge_e2e.py `
     --model-path 3DGS/gaussian-splatting/output/data2 `
     --custom-views-out 3DGS/test2 `
@@ -233,9 +233,9 @@ python bridge/run_bridge_e2e.py `
 **仅重注入**（标记不可见时，不重跑推理）：
 ```powershell
 python bridge/inject_gaussian_markers.py `
-    --ply "E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_30000\point_cloud.ply" `
-    --fused-json "E:\3DGS-VLM\3DGS\test2\runs\<run_id>\fused.json" `
-    --out-iteration-dir "E:\3DGS-VLM\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_37000" `
+    --ply "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_30000\point_cloud.ply" `
+    --fused-json "E:\GSrefer3D\3DGS\test2\runs\<run_id>\fused.json" `
+    --out-iteration-dir "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_37000" `
     --surface-push 0.06 --log-scale -2.5 --marker-count 80
 ```
 

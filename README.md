@@ -1,4 +1,4 @@
-# 3DGS-VLM
+# GSrefer3D
 
 **Language-guided 3D spatial referring**: multi-view **3D Gaussian Splatting** rendering → **RGB-D VLM** (2D point) → geometry fusion → world-space **3D anchor**.
 

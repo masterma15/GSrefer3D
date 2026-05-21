@@ -5,7 +5,7 @@
 ## 推荐目录布局
 
 ```text
-3DGS-VLM/                    ← 本 Git 仓库
+GSrefer3D/                    ← 本 Git 仓库
   bridge/
   docs/                      ← 仅 UPSTREAM_SETUP + *.json 公开；其余本地自留
   patches/

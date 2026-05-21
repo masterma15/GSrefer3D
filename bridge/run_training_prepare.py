@@ -186,7 +186,7 @@ def _patch_kept_paths_cmd(*, wsl: bool) -> list[str]:
 def stage_mask(obj: str, args: argparse.Namespace) -> None:
     kept = REPO / "training_data" / obj / "projections_kept.json"
     if args.use_wsl:
-        wsl_repo = "/mnt/e/3DGS-VLM"
+        wsl_repo = _wsl_path(REPO)
         mask_cmd = _mask_cmd(obj, args, wsl=True)
         patch_cmd = _patch_kept_paths_cmd(wsl=True) + [
             f"{wsl_repo}/training_data/{obj}/projections_kept.json",

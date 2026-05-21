@@ -2,7 +2,7 @@
 
 ## Pinned repository
 
-Pin **3DGS-VLM** on your profile — recruiters often open only the pinned repo.
+Pin **GSrefer3D** on your profile — recruiters often open only the pinned repo.
 
 ## Profile README (optional)
 
@@ -10,7 +10,7 @@ Create a public repo named `<your-username>/<your-username>` and add a short `RE
 
 ```markdown
 ### Hi
-- 🔭 Working on **3DGS + VLM** spatial referring ([3DGS-VLM](https://github.com/<user>/3DGS-VLM))
+- 🔭 Working on **3DGS + VLM** spatial referring ([GSrefer3D](https://github.com/<user>/GSrefer3D))
 - 🧰 Python · PyTorch · 3DGS · multimodal fine-tuning
 ```
 

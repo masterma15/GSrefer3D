@@ -99,8 +99,8 @@ Switch to the roborefer env, make sure the API server is running, then run:
   conda activate roborefer
   cd RoboRefer-main/API
   python api.py --port 25547 \\
-      --depth_model_path /mnt/e/3DGS-VLM/weights/depth_anything_v2_vitl.pth \\
-      --vlm_model_path  /mnt/e/3DGS-VLM/RoboRefer-2B-SFT
+      --depth_model_path /mnt/e/GSrefer3D/weights/depth_anything_v2_vitl.pth \\
+      --vlm_model_path  /mnt/e/GSrefer3D/RoboRefer-2B-SFT
 
 In a second roborefer-env shell, run the batch client:
 

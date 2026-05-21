@@ -1,6 +1,6 @@
 {
-  "views_root": "E:\\3DGS-VLM\\3DGS\\test2",
-  "ply": "E:\\3DGS-VLM\\3DGS\\gaussian-splatting\\output\\data2\\point_cloud\\iteration_30000\\point_cloud.ply",
+  "views_root": "E:\\GSrefer3D\\3DGS\\test2",
+  "ply": "E:\\GSrefer3D\\3DGS\\gaussian-splatting\\output\\data2\\point_cloud\\iteration_30000\\point_cloud.ply",
   "n_jobs": 20,
   "results": [
     {

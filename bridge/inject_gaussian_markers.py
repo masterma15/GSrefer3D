@@ -7,9 +7,9 @@ reconstruction you are viewing (see project notes on fuse-time vs view-time ply)
 
 Example:
   python bridge/inject_gaussian_markers.py \\
-    --ply E:/3DGS-VLM/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply \\
-    --fused-json E:/3DGS-VLM/3DGS/test2/fused.json \\
-    --out-iteration-dir E:/3DGS-VLM/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_35000
+    --ply E:/GSrefer3D/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply \\
+    --fused-json E:/GSrefer3D/3DGS/test2/fused.json \\
+    --out-iteration-dir E:/GSrefer3D/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_35000
 """
 from __future__ import annotations
 

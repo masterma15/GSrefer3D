@@ -30,4 +30,4 @@ Without this patch, accel rasterizer may CUDA-error when SH is passed only via `
 
 ## 3. Everything else
 
-Train with upstream `train.py`, `convert.py`, submodules — unchanged. Do not commit full `gaussian-splatting/` or `SIBR_viewers/` to 3DGS-VLM Git.
+Train with upstream `train.py`, `convert.py`, submodules — unchanged. Do not commit full `gaussian-splatting/` or `SIBR_viewers/` to GSrefer3D Git.
