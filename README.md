@@ -6,11 +6,15 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 
 ## Pipeline
 
-End-to-end flow: **3DGS scene** → multi-view render → **RoboRefer** (language → 2D points) → **unproject + fuse** → world-space **3D anchor**; optional branch builds **469** RGB-D SFT samples and **2B LoRA** fine-tuning.
-
 ![GSrefer3D end-to-end pipeline](demo/pipeline.png)
 
-**A · Online referring** (each e2e): render → API → unproject → fuse → overlay / SIBR. **B · Training loop** (offline): `P_world` → project → ray filter → DINO+SAM2 → export → LoRA → merged → API.
+**3DGS** (once per scene): multi-view photos → COLMAP + optional depth regularization → `train.py` → `point_cloud.ply`.
+
+**Bridge 3D** — **online referring**: `render.py` (RGB-D + `depth_raw` + extrinsics) → optional visibility pre-filter → **RoboRefer API** (text → 2D) → **unproject** → **fuse_multiview** → `P_world` → **SIBR / overlays**.
+
+**Bridge 3D** — **offline training data** (469 RGB-D Location): `P_world` → **project** → **ray occlusion filter** → **DINO + SAM2** → **2D point refinement** (mask centroid) → export → **fine-tuning dataset** → **LoRA** → merged weights → API.
+
+Side outputs: multi-view **masks** (SAM2) and **eval** overlays vs synthetic GT.
 
 ## Highlights
 
