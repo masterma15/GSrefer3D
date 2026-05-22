@@ -42,13 +42,13 @@ LoRA (**merged data2**) **median L2 ≤ Base on all 10/10** training objects (no
 
 See [`docs/RESULTS.md`](docs/RESULTS.md) §2 for all 10 objects, %&lt;0.05, and support.
 
-### Hold-out · double-sided tape (qualitative)
+### Double-sided tape (excluded from data2 SFT · qualitative)
 
-**Hold-out overlay: Base (left) vs data2 LoRA (right)**
+**Double-sided tape — excluded from data2 SFT (469 samples); same 3DGS scene, qualitative overlay only.**
 
-![Hold-out qualitative comparison — double-sided adhesive tape; Base left, LoRA right, three views](demo/teaser_holdout_tape.png)
+![Double-sided tape excluded from data2 SFT — Base left, data2 LoRA right, three views](demo/teaser_holdout_tape.png)
 
-Same **data2** scene and 72-view render pack; object **not** in the 469-sample SFT set. Prompt: *Please point to the roll of clear double-sided adhesive tape on the desk.* **Left:** `RoboRefer-2B-SFT` (Base). **Right:** `RoboRefer-2B-SFT-data2-merged` (LoRA). Colored dots are 2D predictions / fuse inliers from `overlays_rgb` (green = fused inliers where applicable). Visual inspection suggests tighter referring after domain LoRA; **no synthetic 2D GT** for this object — see [`docs/RESULTS.md`](docs/RESULTS.md) §3 (runs `000313_6c883d56` / `132142_6c883d56`).
+Same **data2** 3DGS scene and 72-view render pack; this object is **not** in the 469-sample `data2_location` fine-tuning set (LoRA never trained on tape labels here). Prompt: *Please point to the roll of clear double-sided adhesive tape on the desk.* **Left:** `RoboRefer-2B-SFT` (Base). **Right:** `RoboRefer-2B-SFT-data2-merged` (LoRA). Colored dots are 2D predictions / fuse inliers from `overlays_rgb` (green = fused inliers where applicable). Visual inspection suggests tighter referring after domain LoRA; **no synthetic 2D GT** for this object — see [`docs/RESULTS.md`](docs/RESULTS.md) §3 (runs `000313_6c883d56` / `132142_6c883d56`).
 
 ### Out-of-domain benchmark
 
@@ -82,7 +82,7 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
-| [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Hold-out Base vs LoRA overlays (README) |
+| [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Tape (not in data2 SFT) Base vs LoRA overlays (README) |
 | [`demo/teaser_train_data.png`](demo/teaser_train_data.png) | **Yes** | Training GT refine teaser (README) |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
