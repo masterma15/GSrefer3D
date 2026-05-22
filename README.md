@@ -57,7 +57,22 @@ Same **data2** scene and 72-view render pack; object **not** in the 469-sample S
 | **RefSpatial-Expand Location** | Base **50.21%** (repro.) → LoRA **45.64%** (−4.57 pp, out-of-domain) |
 | **RefSpatial-Expand Placement** | Base **48.50%** → LoRA **47.00%** |
 
-### Training data
+### Training data · synthetic 2D GT (mask-centroid refine)
+
+**Training labels: 3D projection → SAM2 mask → centroid refine**
+
+![Synthetic SFT labels — green proj (3D projection), red ref (mask centroid); golden bowl, hair clip, electric shaver, umbrella](demo/teaser_train_data.png)
+
+Offline pipeline for **469** RGB-D Location samples (**10** categories): fused **`P_world`** → per-view **project** → **DINO + SAM2** mask → **`make_refine_review.py`** moves the label from the projected pixel to the **mask centroid** (larger corrections shown on purpose).
+
+| Panel | Object | `move` (px) | Note |
+|-------|--------|-------------|------|
+| Top-left | Golden bowl | 118.5 | Large shift onto bowl surface |
+| Top-right | Hair clip | 27.5 | Smaller in-mask correction |
+| Bottom-left | Electric shaver | 75.3 | Projection off body → centroid on shaver |
+| Bottom-right | Umbrella | 197.2 | Largest refine; lands on umbrella region |
+
+**Green `proj`** = 2D projection of `P_world` before refine · **Red `ref`** = SFT **`answer`** after refine · green tint = SAM2 mask. Exported via `bridge/make_refine_review.py` (`review_refine/refine_view_*.png`). Not hand-clicked coordinates.
 
 **469** RGB-D Location samples · **10** categories · 2B LoRA 1 epoch on `data2_location` mixture.
 
@@ -68,6 +83,7 @@ Same **data2** scene and 72-view render pack; object **not** in the 469-sample S
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
 | [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Hold-out Base vs LoRA overlays (README) |
+| [`demo/teaser_train_data.png`](demo/teaser_train_data.png) | **Yes** | Training GT refine teaser (README) |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
