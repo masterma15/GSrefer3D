@@ -36,7 +36,7 @@ Fixed referring pixel + camera; only the depth source changes → unproject `P_w
 | Wins vs DAV2 affine | **15 / 20** | — | — | — |
 
 **One-liner:** 20 unprojection groups — 3DGS render depth NN median **0.133 m** vs DAV2 affine **0.368 m** (3DGS better in 15/20).  
-Details: [`depth_compare_batch.json`](depth_compare_batch.json).
+Details: [`depth_compare_batch.json`](depth_compare_batch.json) · figure: [`../demo/teaser_depth_ablation.png`](../demo/teaser_depth_ablation.png).
 
 ---
 
@@ -67,6 +67,8 @@ Details: [`depth_compare_batch.json`](depth_compare_batch.json).
 | Hair clip | Base | `183039_65bf02a5` | 35 | 0.0218 | 0.0575 | 80.0% | 22 | — |
 | Hair clip | LoRA | `164312_65bf02a5` | 35 | **0.0104** | 0.0265 | 94.3% | 25 | **−0.0114** |
 
+*L2 = normalized image-plane Euclidean distance; counted only for `parse_ok` views present in GT.*
+
 **Summary (10/10 training objects):** LoRA **median L2 ≤ Base** on every object. Largest gains: **umbrella** (−0.056), **golden retriever** (−0.053), **brown rabbit** (−0.031).  
 Overlays: `3DGS/test2/runs/<run_id>/overlays_rgb/view_XXX.png` (local; not in Git).
 
@@ -81,7 +83,7 @@ Excluded from data2 SFT (469 samples); same 3DGS scene; qualitative overlay only
 | Base | `000313_6c883d56` | — | 15 | Check `overlays_rgb/` qualitatively |
 | LoRA | `132142_6c883d56` | — | 17 | Same |
 
-No automatic 2D score; report as **qualitative overlay comparison** only.
+No automatic 2D score; report as **qualitative overlay comparison** only. Teaser: [`../demo/teaser_holdout_tape.png`](../demo/teaser_holdout_tape.png).
 
 ---
 
@@ -95,27 +97,3 @@ No automatic 2D score; report as **qualitative overlay comparison** only.
 Base matches paper reproduction; LoRA reflects domain adaptation trade-off on out-of-domain data. **Do not mix** with in-domain 2D L2.
 
 ---
-
-## 5. Copy-paste bullets (resume / README)
-
-**In-domain fine-tuning (2D)**
-
-```text
-On 10 training object categories in data2, 2D referring error vs synthetic GT: LoRA median L2 ≤ Base on all objects (e.g. umbrella 0.067→0.011, golden retriever 0.062→0.008, normalized coords); same 72-view render and fusion pipeline.
-```
-
-**Depth ablation (one line)**
-
-```text
-20 unprojection groups: 3DGS render depth NN median 0.133 m vs DAV2 affine-aligned 0.368 m (15/20 groups favor 3DGS).
-```
-
-**Out-of-domain (optional)**
-
-```text
-RefSpatial-Expand Location: Base 50.21% (repro), data2 LoRA 45.64% (−4.57 pp, out-of-domain).
-```
-
----
-
-*L2 = normalized image-plane Euclidean distance; counted only for `parse_ok` views present in GT.*
