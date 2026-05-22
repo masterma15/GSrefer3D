@@ -42,11 +42,18 @@ LoRA (**merged data2**) **median L2 ≤ Base on all 10/10** training objects (no
 
 See [`docs/RESULTS.md`](docs/RESULTS.md) §2 for all 10 objects, %&lt;0.05, and support.
 
-### Hold-out & out-of-domain
+### Hold-out · double-sided tape (qualitative)
+
+**Hold-out overlay: Base (left) vs data2 LoRA (right)**
+
+![Hold-out qualitative comparison — double-sided adhesive tape; Base left, LoRA right, three views](demo/teaser_holdout_tape.png)
+
+Same **data2** scene and 72-view render pack; object **not** in the 469-sample SFT set. Prompt: *Please point to the roll of clear double-sided adhesive tape on the desk.* **Left:** `RoboRefer-2B-SFT` (Base). **Right:** `RoboRefer-2B-SFT-data2-merged` (LoRA). Colored dots are 2D predictions / fuse inliers from `overlays_rgb` (green = fused inliers where applicable). Visual inspection suggests tighter referring after domain LoRA; **no synthetic 2D GT** for this object — see [`docs/RESULTS.md`](docs/RESULTS.md) §3 (runs `000313_6c883d56` / `132142_6c883d56`).
+
+### Out-of-domain benchmark
 
 | Setting | Result |
 |---------|--------|
-| **Hold-out** (double-sided tape, not in SFT) | Qualitative overlay only — Base `000313_6c883d56`, LoRA `132142_6c883d56` |
 | **RefSpatial-Expand Location** | Base **50.21%** (repro.) → LoRA **45.64%** (−4.57 pp, out-of-domain) |
 | **RefSpatial-Expand Placement** | Base **48.50%** → LoRA **47.00%** |
 
@@ -60,6 +67,7 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) §2 for all 10 objects, %&lt;0.05, and 
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
+| [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Hold-out Base vs LoRA overlays (README) |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
