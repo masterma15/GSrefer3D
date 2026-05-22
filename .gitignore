@@ -3,6 +3,7 @@ demo/*
 !demo/pipeline.png
 !demo/teaser_holdout_tape.png
 !demo/teaser_train_data.png
+!demo/teaser_depth_ablation.png
 
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*
