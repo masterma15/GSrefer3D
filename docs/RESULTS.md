@@ -72,9 +72,9 @@ Overlays: `3DGS/test2/runs/<run_id>/overlays_rgb/view_XXX.png` (local; not in Gi
 
 ---
 
-## 3. Hold-out · double-sided tape (no GT)
+## 3. Double-sided tape — excluded from data2 SFT (no GT)
 
-Not in `data2_sft` · Prompt: *clear double-sided adhesive tape on the desk* · 72 views.
+Excluded from data2 SFT (469 samples); same 3DGS scene; qualitative overlay only. Not in `data2_sft` · Prompt: *clear double-sided adhesive tape on the desk* · 72 views.
 
 | Group | run_id (suffix) | 2D GT | support | Notes |
 |-------|-----------------|-------|---------|-------|
