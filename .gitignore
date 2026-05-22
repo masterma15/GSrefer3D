@@ -1,3 +1,6 @@
+# Local demo assets (pipeline PNG / Mermaid) — not on GitHub thin repo
+demo/
+
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*
 !docs/UPSTREAM_SETUP.md

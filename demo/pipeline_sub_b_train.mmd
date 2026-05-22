@@ -1,8 +1,0 @@
-%% 子Pipeline B — 训练支路（非在线指代前置）
-flowchart LR
-  B0["fused P_world"] --> B1["project GT 2D"]
-  B1 --> B2["filter 可选"]
-  B2 --> B3["SAM2 可选"]
-  B3 --> B4["export 469"]
-  B4 --> B5["LoRA merge"]
-  B5 -.-> API["RoboRefer API"]
