@@ -22,12 +22,17 @@ Full per-object tables, run IDs, and resume bullets: **[`docs/RESULTS.md`](docs/
 
 ### Depth for unprojection (ablation)
 
-| Source | median NN to scene (m) |
-|--------|-------------------------|
+![Depth source ablation — median NN distance to 3DGS point cloud (lower is better)](demo/teaser_depth_ablation.png)
+
+Same referring pixel and camera; only the depth source changes → unproject → compare NN distance to `point_cloud.ply` (**lower is better**). Medians over **20** groups:
+
+| Source | median NN (m) |
+|--------|---------------|
 | **3DGS `depth_raw`** | **0.133** |
 | DAV2 affine | 0.368 |
+| DAV2 raw | 0.572 |
 
-20 groups, fixed pixel + camera; **15/20** favor 3DGS over DAV2 affine.
+**15/20** groups: 3DGS &lt; DAV2 affine. Raw numbers: [`depth_compare_batch.json`](docs/depth_compare_batch.json). Regenerate figure: `python bridge/plot_depth_ablation_teaser.py` (requires `matplotlib`).
 
 ### In-domain 2D vs synthetic GT (data2 · 10 objects)
 
@@ -84,6 +89,7 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
 | [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Tape (not in data2 SFT) Base vs LoRA overlays (README) |
 | [`demo/teaser_train_data.png`](demo/teaser_train_data.png) | **Yes** | Training GT refine teaser (README) |
+| [`demo/teaser_depth_ablation.png`](demo/teaser_depth_ablation.png) | **Yes** | Depth ablation bar chart (README) |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
