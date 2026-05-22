@@ -16,18 +16,43 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 
 Side outputs: multi-view **masks** (SAM2) and **eval** overlays vs synthetic GT.
 
-## Highlights
+## Results
 
-| Item | Result |
-|------|--------|
-| Depth for 2D→3D unprojection | 3DGS render depth NN median **0.133 m** vs DAV2 affine **0.368 m** (20 groups, 15/20 wins) |
-| `bridge/` pipeline | Cross-env 3DGS + HTTP VLM + RANSAC fuse → `fused.json` / SIBR markers |
-| Synthetic SFT | **469** RGB-D Location samples, **10** object categories |
-| 2B LoRA (data2) | Domain 2D median L2 ≤ Base on **10/10** training objects (e.g. umbrella **0.067→0.011**, norm. coords) |
-| Hold-out | Double-sided tape (not in SFT) — qualitative overlay |
-| RefSpatial-Expand | Base **50.21%** Location (repro.); data2 LoRA **45.64%** (out-of-domain) |
+Full per-object tables, run IDs, and resume bullets: **[`docs/RESULTS.md`](docs/RESULTS.md)** · raw JSON: [`results_2d_eval.json`](docs/results_2d_eval.json) · [`depth_compare_batch.json`](docs/depth_compare_batch.json).
 
-Experiment JSON: [`docs/results_2d_eval.json`](docs/results_2d_eval.json) · [`docs/depth_compare_batch.json`](docs/depth_compare_batch.json)
+### Depth for unprojection (ablation)
+
+| Source | median NN to scene (m) |
+|--------|-------------------------|
+| **3DGS `depth_raw`** | **0.133** |
+| DAV2 affine | 0.368 |
+
+20 groups, fixed pixel + camera; **15/20** favor 3DGS over DAV2 affine.
+
+### In-domain 2D vs synthetic GT (data2 · 10 objects)
+
+LoRA (**merged data2**) **median L2 ≤ Base on all 10/10** training objects (normalized coords, same render + fuse).
+
+| Object | Base median L2 | LoRA median L2 | Δ |
+|--------|----------------|----------------|---|
+| Umbrella | 0.067 | **0.011** | −0.056 |
+| Golden retriever | 0.062 | **0.008** | −0.053 |
+| Brown rabbit | 0.037 | **0.007** | −0.031 |
+| Golden bowl | 0.009 | **0.003** | −0.006 |
+
+See [`docs/RESULTS.md`](docs/RESULTS.md) §2 for all 10 objects, %&lt;0.05, and support.
+
+### Hold-out & out-of-domain
+
+| Setting | Result |
+|---------|--------|
+| **Hold-out** (double-sided tape, not in SFT) | Qualitative overlay only — Base `000313_6c883d56`, LoRA `132142_6c883d56` |
+| **RefSpatial-Expand Location** | Base **50.21%** (repro.) → LoRA **45.64%** (−4.57 pp, out-of-domain) |
+| **RefSpatial-Expand Placement** | Base **48.50%** → LoRA **47.00%** |
+
+### Training data
+
+**469** RGB-D Location samples · **10** categories · 2B LoRA 1 epoch on `data2_location` mixture.
 
 ## Repository layout (what is in Git)
 
@@ -35,7 +60,7 @@ Experiment JSON: [`docs/results_2d_eval.json`](docs/results_2d_eval.json) · [`d
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
-| `docs/` (public) | **3 files only** | Setup + depth/2D eval JSON (other notes stay local) |
+| `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
 | [`3DGS/environment-envGS.yml`](3DGS/environment-envGS.yml) | **Yes** | Conda env hint |
@@ -92,5 +117,6 @@ If you use this integration, cite the upstream 3DGS and RoboRefer papers. This r
 | File | Use |
 |------|-----|
 | [docs/UPSTREAM_SETUP.md](docs/UPSTREAM_SETUP.md) | Clone upstream & download weights |
+| [docs/RESULTS.md](docs/RESULTS.md) | Full experiment tables (English) |
 | [docs/results_2d_eval.json](docs/results_2d_eval.json) | Per-object Base/LoRA 2D L2 vs GT |
 | [docs/depth_compare_batch.json](docs/depth_compare_batch.json) | Depth ablation (20 groups) |

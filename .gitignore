@@ -5,6 +5,7 @@ demo/*
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*
 !docs/UPSTREAM_SETUP.md
+!docs/RESULTS.md
 !docs/depth_compare_batch.json
 !docs/results_2d_eval.json
 docs/mil_cv_assets/
