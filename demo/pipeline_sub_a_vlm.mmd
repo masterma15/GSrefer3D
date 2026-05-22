@@ -1,0 +1,8 @@
+%% 子Pipeline A — 仅 RoboRefer 内部（主路径第2步）
+flowchart LR
+  I1["RGB"] --> E1["SigLIP"]
+  I2["Depth图"] --> E2["depth_tower"]
+  I3["prompt"] --> L["Qwen2 2B"]
+  E1 --> P1["mm_projector"] --> L
+  E2 --> P2["depth_projector"] --> L
+  L --> O["nx ny"]
