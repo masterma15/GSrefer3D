@@ -8,7 +8,7 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 
 End-to-end flow: **3DGS scene** → multi-view render → **RoboRefer** (language → 2D points) → **unproject + fuse** → world-space **3D anchor**; optional branch builds **469** RGB-D SFT samples and **2B LoRA** fine-tuning.
 
-*Full diagram: local `demo/pipeline.png` (not in this thin repo; keep for resume / interview).*
+![GSrefer3D end-to-end pipeline](demo/pipeline.png)
 
 **A · Online referring** (each e2e): render → API → unproject → fuse → overlay / SIBR. **B · Training loop** (offline): `P_world` → project → ray filter → DINO+SAM2 → export → LoRA → merged → API.
 
@@ -30,7 +30,7 @@ Experiment JSON: [`docs/results_2d_eval.json`](docs/results_2d_eval.json) · [`d
 | Path | In Git? | Role |
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
-| `demo/` | **No** | Pipeline figure + Mermaid sources (local only) |
+| [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
 | `docs/` (public) | **3 files only** | Setup + depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
