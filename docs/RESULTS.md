@@ -30,10 +30,15 @@ GT: `training_data/data2_sft/location_point.json` (SFT views only, **n ≤ 72** 
 
 Fixed referring pixel + camera; only the depth source changes → unproject `P_world` → **NN distance (m)** to `point_cloud.ply`.
 
-| Summary (20 groups) | 3DGS | DAV2 raw | DAV2 affine | DAV2 inv |
-|---------------------|------|----------|-------------|----------|
-| **median NN (m)** | **0.133** | 0.572 | 0.368 | 0.183 |
-| Wins vs DAV2 affine | **15 / 20** | — | — | — |
+| Depth source (median over 20 groups) | 3DGS | DAV2 raw | DAV2 affine | DAV2 inv |
+|--------------------------------------|------|----------|-------------|----------|
+| **NN distance to scene (m)** ↓ | **0.133** | 0.572 | 0.368 | 0.183 |
+
+**Per-group win rate** (same 20 groups; lower NN wins):
+
+| Comparison | Result |
+|------------|--------|
+| 3DGS vs DAV2 affine | **15 / 20** groups favor 3DGS |
 
 **One-liner:** 20 unprojection groups — 3DGS render depth NN median **0.133 m** vs DAV2 affine **0.368 m** (3DGS better in 15/20).  
 Details: [`depth_compare_batch.json`](depth_compare_batch.json) · figure: [`../demo/teaser_depth_ablation.png`](../demo/teaser_depth_ablation.png).
