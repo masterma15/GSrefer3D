@@ -113,8 +113,9 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 | [`demo/teaser_base_lora_*.png`](demo/) | **Yes** | Base vs LoRA overlay teasers (5 objects; README) |
 | [`demo/teaser_train_data.png`](demo/teaser_train_data.png) | **Yes** | Training GT refine teaser (README) |
 | [`demo/teaser_depth_ablation.png`](demo/teaser_depth_ablation.png) | **Yes** | Depth ablation bar chart (README) |
-| [`demo/teaser_3d_electric_shaver.gif`](demo/teaser_3d_electric_shaver.gif) | **Yes** | SIBR 3D anchor — electric shaver (README) |
-| [`demo/teaser_3d_brown_rabbit.gif`](demo/teaser_3d_brown_rabbit.gif) | **Yes** | SIBR 3D anchor — brown rabbit (README) |
+| [`demo/teaser_3d_electric_shaver.gif`](demo/teaser_3d_electric_shaver.gif) | **Yes** | SIBR 3D anchor — electric shaver (1718×958, ~58 MB) |
+| [`demo/teaser_3d_brown_rabbit.gif`](demo/teaser_3d_brown_rabbit.gif) | **Yes** | SIBR 3D anchor — brown rabbit (1718×958, ~36 MB) |
+| [`demo/teaser_3d_*.gif.orig`](demo/) | **Yes** | Explicit backup copies of the SIBR GIFs |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
