@@ -203,7 +203,8 @@ def stage_fuse(args: argparse.Namespace) -> tuple[Path, Path]:
     if depth_dir is not None:
         depth_dir = Path(depth_dir).resolve()
 
-    ply = args.ply or _guess_ply(args.model_path) if (args.snap or args.ply) else None
+    ply = args.ply or _guess_ply(args.model_path) if (getattr(args, "auto_ply", False) or args.ply) else None
+    depth_mode = getattr(args, "depth_mode", "ray")
     result = fm.fuse(
         predictions,
         inlier_radius=args.inlier_radius,
@@ -212,17 +213,22 @@ def stage_fuse(args: argparse.Namespace) -> tuple[Path, Path]:
         refine_k=args.refine_k,
         ply_path=ply,
         depth_dir=depth_dir,
+        depth_mode=depth_mode,
+        ray_perp_radius=getattr(args, "ray_perp_radius", 0.06),
+        ray_pixel_radius=getattr(args, "ray_pixel_radius", 6.0),
+        ray_z_band=getattr(args, "ray_z_band", 2.0),
+        ray_min_alpha=getattr(args, "ray_min_alpha", 0.45),
     )
 
     fused_out = args.fused_output or (pred_path.parent / "fused.json")
     fused_out.parent.mkdir(parents=True, exist_ok=True)
+    payload = result.to_dict()
+    payload["depth_mode"] = depth_mode
     with fused_out.open("w", encoding="utf-8") as f:
-        json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
     p = result.P_world
     print(f"[stage fuse] P_world=({p[0]:.4f}, {p[1]:.4f}, {p[2]:.4f})  "
           f"support={result.support}/{len(result.candidates)}")
-    if result.snapped_to_gaussian:
-        print(f"             snap_distance={result.snap_distance:.4f}")
     print(f"[stage fuse] wrote {fused_out}")
 
     marker_out = args.marker_output or (fused_out.parent / "marker.ply")
@@ -264,13 +270,20 @@ def main() -> None:
                     help="Override predictions.json path (default: <custom-views-out>/predictions.json)")
 
     # fuse-stage args
-    ap.add_argument("--inlier-radius", type=float, default=0.5)
+    ap.add_argument("--inlier-radius", type=float, default=5.0)
     ap.add_argument("--min-inv", type=float, default=1e-3)
-    ap.add_argument("--ply", type=Path, default=None)
+    ap.add_argument("--ply", type=Path, default=None,
+                    help="point_cloud.ply (required for --depth-mode ray)")
     ap.add_argument("--no-refine", action="store_true", help="Disable iterative refinement")
-    ap.add_argument("--refine-k", type=float, default=2.0, help="Refinement threshold: k * median_dist")
-    ap.add_argument("--snap", action="store_true",
-                    help="Auto-discover point_cloud.ply under --model-path and snap fused point to nearest gaussian")
+    ap.add_argument("--refine-k", type=float, default=1.35, help="Refinement threshold: k * median_dist")
+    ap.add_argument("--auto-ply", action="store_true",
+                    help="Auto-discover point_cloud.ply under --model-path (for depth_mode=ray)")
+    ap.add_argument("--depth-mode", choices=("invdepth", "ray"), default="ray",
+                    help="Per-view depth: invdepth=raster only; ray=refine z along ray using --ply")
+    ap.add_argument("--ray-perp-radius", type=float, default=0.06)
+    ap.add_argument("--ray-pixel-radius", type=float, default=6.0)
+    ap.add_argument("--ray-z-band", type=float, default=2.0)
+    ap.add_argument("--ray-min-alpha", type=float, default=0.45)
     ap.add_argument("--exclude", type=int, nargs="+", default=None,
                     help="View IDs to treat as invisible during fusion (same as fuse_multiview --exclude)")
     ap.add_argument("--depth-dir", type=Path, default=None,

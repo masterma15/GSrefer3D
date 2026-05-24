@@ -10,7 +10,9 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 
 **3DGS** (once per scene): multi-view photos → COLMAP + optional depth regularization → `train.py` → `point_cloud.ply`.
 
-**Bridge 3D** — **online referring**: `render.py` (RGB-D + `depth_raw` + extrinsics) → optional visibility pre-filter → **RoboRefer API** (text → 2D) → **unproject** → **fuse_multiview** → `P_world` → **SIBR / overlays**.
+**Bridge 3D** — **online referring**: `render.py` (RGB-D + `depth_raw` + extrinsics) → optional visibility pre-filter → **RoboRefer API** (text → 2D) → **ray-local unproject** (`depth_mode=ray`) → **fuse_multiview** → `P_world` → **SIBR / overlays**.
+
+Per-view 3D uses 3DGS **`depth_raw`** as initial depth **z₀**, then optional **ray refinement** ([`bridge/ray_unproject.py`](bridge/ray_unproject.py)): Gaussians near the click ray → **p75** camera depth, `z = max(z₀, z_pick)` so candidates sit on object surfaces (replaces post-fuse snap-to-vertex). Visualization markers show **inliers only** ([`visualize.py`](bridge/visualize.py), [`inject_gaussian_markers.py`](bridge/inject_gaussian_markers.py)).
 
 **Bridge 3D** — **offline training data** (469 RGB-D Location): `P_world` → **project** → **ray occlusion filter** → **DINO + SAM2** → **2D point refinement** (mask centroid) → export → **fine-tuning dataset** → **LoRA** → merged weights → API.
 
@@ -24,7 +26,7 @@ Full per-object tables, run IDs, and resume bullets: **[`docs/RESULTS.md`](docs/
 
 ![Depth source ablation — median NN distance to 3DGS point cloud (lower is better)](demo/teaser_depth_ablation.png)
 
-Same referring pixel and camera; only the depth source changes → unproject → compare NN distance to `point_cloud.ply` (**lower is better**). Medians over **20** groups:
+Same referring pixel and camera; only the **initial depth source** for z₀ changes → unproject → compare NN distance to `point_cloud.ply` (**lower is better**). This ablation does **not** include ray refinement (that step assumes a 3DGS `point_cloud.ply` and runs after z₀). Medians over **20** groups:
 
 | Source | median NN (m) |
 |--------|---------------|
@@ -47,11 +49,32 @@ LoRA (**merged data2**) **median L2 ≤ Base on all 10/10** training objects (no
 
 See [`docs/RESULTS.md`](docs/RESULTS.md) §2 for all 10 objects, %&lt;0.05, and support.
 
+**Base vs LoRA overlays** (3 views × 2 columns; views auto-picked for largest LoRA 2D gain vs SFT GT; green = fused inliers). Export: `python bridge/make_e2e_teaser.py --preset <name>`.
+
+| Object | Figure |
+|--------|--------|
+| Umbrella | ![Umbrella — Base vs LoRA](demo/teaser_base_lora_umbrella.png) |
+| Golden retriever | ![Golden retriever — Base vs LoRA](demo/teaser_base_lora_golden_retriever.png) |
+| Brown rabbit | ![Brown rabbit — Base vs LoRA](demo/teaser_base_lora_rabbit.png) |
+| Electric shaver | ![Electric shaver — Base vs LoRA](demo/teaser_base_lora_shaver.png) |
+
+### 3D anchor in SIBR (fused `P_world`)
+
+After multi-view fuse, **`inject_gaussian_markers.py`** writes a red Gaussian cluster at **`P_world`** into a copy of the trained scene; **SIBR** orbit recordings show the language-guided 3D anchor on the **data2** desk scene (**LoRA** runs).
+
+**Electric shaver** — *Please point to the electric shaver on the desk.* (run `143457_4c3b9a32`, LoRA median L2 **0.0085** vs Base **0.0273**)
+
+![Electric shaver — fused 3D anchor in SIBR (data2 LoRA)](demo/teaser_3d_electric_shaver.gif)
+
+**Brown plush rabbit** — *Please point to the brown plush rabbit.* (run `144845_147bac82`, LoRA median L2 **0.0065** vs Base **0.0373**)
+
+![Brown plush rabbit — fused 3D anchor in SIBR (data2 LoRA)](demo/teaser_3d_brown_rabbit.gif)
+
 ### Double-sided tape (excluded from data2 SFT · qualitative)
 
 **Double-sided tape — excluded from data2 SFT (469 samples); same 3DGS scene, qualitative overlay only.**
 
-![Double-sided tape excluded from data2 SFT — Base left, data2 LoRA right, three views](demo/teaser_holdout_tape.png)
+![Double-sided tape excluded from data2 SFT — Base left, data2 LoRA right, three views](demo/teaser_base_lora_tape.png)
 
 Same **data2** 3DGS scene and 72-view render pack; this object is **not** in the 469-sample `data2_location` fine-tuning set (LoRA never trained on tape labels here). Prompt: *Please point to the roll of clear double-sided adhesive tape on the desk.* **Left:** `RoboRefer-2B-SFT` (Base). **Right:** `RoboRefer-2B-SFT-data2-merged` (LoRA). Colored dots are 2D predictions / fuse inliers from `overlays_rgb` (green = fused inliers where applicable). Visual inspection suggests tighter referring after domain LoRA; **no synthetic 2D GT** for this object — see [`docs/RESULTS.md`](docs/RESULTS.md) §3 (runs `000313_6c883d56` / `132142_6c883d56`).
 
@@ -87,9 +110,11 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 |------|---------|------|
 | [`bridge/`](bridge/) | **Yes** | 2D→3D unproject, fuse, e2e, eval, training export |
 | [`demo/pipeline.png`](demo/pipeline.png) | **Yes** | Pipeline figure (README) |
-| [`demo/teaser_holdout_tape.png`](demo/teaser_holdout_tape.png) | **Yes** | Tape (not in data2 SFT) Base vs LoRA overlays (README) |
+| [`demo/teaser_base_lora_*.png`](demo/) | **Yes** | Base vs LoRA overlay teasers (5 objects; README) |
 | [`demo/teaser_train_data.png`](demo/teaser_train_data.png) | **Yes** | Training GT refine teaser (README) |
 | [`demo/teaser_depth_ablation.png`](demo/teaser_depth_ablation.png) | **Yes** | Depth ablation bar chart (README) |
+| [`demo/teaser_3d_electric_shaver.gif`](demo/teaser_3d_electric_shaver.gif) | **Yes** | SIBR 3D anchor — electric shaver (README) |
+| [`demo/teaser_3d_brown_rabbit.gif`](demo/teaser_3d_brown_rabbit.gif) | **Yes** | SIBR 3D anchor — brown rabbit (README) |
 | `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
@@ -111,10 +136,12 @@ python render.py -m gaussian-splatting/output/<scene> --custom_views --output_pa
 # 2) RoboRefer API (WSL/cloud), then from repo root:
 python bridge/roborefer_client.py --root 3DGS/test2 --url http://127.0.0.1:25547 --prompt "Please point to ..."
 
-# 3) Fuse + optional snap
-python bridge/fuse_multiview.py --predictions 3DGS/test2/predictions.json --ply <point_cloud.ply> --output 3DGS/test2/fused.json
+# 3) Fuse (--ply required for default depth_mode=ray) + marker
+python bridge/fuse_multiview.py --predictions 3DGS/test2/predictions.json \
+  --ply 3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply \
+  --output 3DGS/test2/fused.json
 
-# Or one-shot:
+# Or one-shot ( --snap picks inject-base ply; also used for ray unproject ):
 python bridge/run_bridge_e2e.py --model-path 3DGS/gaussian-splatting/output/data2 --custom-views-out 3DGS/test2 --prompt "..." --snap --url http://127.0.0.1:25547
 ```
 

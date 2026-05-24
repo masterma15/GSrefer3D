@@ -238,14 +238,22 @@ def main() -> None:
     ap.add_argument("--visibility-base-url", type=str, default=None)
     ap.add_argument("--visibility-model", type=str, default=None)
 
-    ap.add_argument("--inlier-radius", type=float, default=1.0)
+    ap.add_argument("--inlier-radius", type=float, default=5.0)
     ap.add_argument("--min-inv", type=float, default=1e-3)
-    ap.add_argument("--refine-k", type=float, default=1.75)
+    ap.add_argument("--refine-k", type=float, default=1.35)
     ap.add_argument("--no-refine", action="store_true")
-    ap.add_argument("--ply", type=Path, default=None, help="point_cloud.ply used for snap-to-gaussian (fuse + inject base).")
-    ap.add_argument("--snap", action="store_true", help="If --ply omitted, use latest point_cloud under --model-path.")
+    ap.add_argument("--ply", type=Path, default=None, help="point_cloud.ply used as inject base (iteration_30000).")
+    ap.add_argument("--snap", action="store_true",
+                    help="If --ply omitted, auto-pick latest point_cloud.ply under --model-path (inject base only).")
     ap.add_argument("--exclude", type=int, nargs="+", default=None)
-    ap.add_argument("--depth-dir", type=Path, default=None, help="Override depth_raw dir (e.g. views_root/depth_raw_dav2).")
+    ap.add_argument("--depth-dir", type=Path, default=None,
+                    help="Override depth_raw directory (e.g. views_root/depth_raw_dav2).")
+    ap.add_argument("--depth-mode", choices=("invdepth", "ray"), default="ray",
+                    help="Fuse depth: invdepth=raster z only; ray=refine z along ray via --ply Gaussians")
+    ap.add_argument("--ray-perp-radius", type=float, default=0.06)
+    ap.add_argument("--ray-pixel-radius", type=float, default=6.0)
+    ap.add_argument("--ray-z-band", type=float, default=2.0)
+    ap.add_argument("--ray-min-alpha", type=float, default=0.45)
 
     ap.add_argument("--skip-overlay", action="store_true")
     ap.add_argument("--no-model-bundle", action="store_true",
@@ -393,11 +401,15 @@ def main() -> None:
         no_refine=args.no_refine,
         refine_k=args.refine_k,
         ply=ply_used,
-        snap=True,
         fused_output=fused_path,
         marker_output=marker_path,
         exclude=args.exclude,
         depth_dir=depth_dir_resolved,
+        depth_mode=args.depth_mode,
+        ray_perp_radius=args.ray_perp_radius,
+        ray_pixel_radius=args.ray_pixel_radius,
+        ray_z_band=args.ray_z_band,
+        ray_min_alpha=args.ray_min_alpha,
     )
     stage_fuse(fuse_ns)
 

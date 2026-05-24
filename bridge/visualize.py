@@ -2,8 +2,8 @@
 """Export a marker .ply for the fused 3D point.
 
 Reads bridge/fuse_multiview.py output (fused.json) and writes a small ASCII
-PLY with one big sphere-ish vertex cluster at the fused P_world plus the
-inlier candidates (smaller, green) and outlier candidates (smaller, red).
+PLY with one big sphere-ish vertex cluster at the fused P_world plus inlier
+candidates (green). Outlier candidates are omitted.
 
 Drop the .ply into MeshLab / CloudCompare next to point_cloud.ply, or load
 it in the SIBR viewer's external-pointcloud overlay if you build it in.
@@ -42,10 +42,10 @@ def write_marker_ply(
     fused: dict,
     output: Path,
     *,
-    marker_radius: float = 0.05,
-    marker_count: int = 200,
-    candidate_radius: float = 0.015,
-    candidate_count: int = 40,
+    marker_radius: float = 0.08,
+    marker_count: int = 250,
+    candidate_radius: float = 0.028,
+    candidate_count: int = 55,
 ) -> None:
     P = np.asarray(fused["P_world"], dtype=np.float64)
 
@@ -57,11 +57,12 @@ def write_marker_ply(
     # 1) Big red marker at fused point
     chunks.append((_sphere_cluster(P, marker_radius, marker_count), COLOR_FUSED))
 
-    # 2) Smaller markers at every candidate (green if inlier, yellow otherwise)
+    # 2) Inlier candidates only (green); outliers omitted
     for i, c in enumerate(cands):
+        if i not in inlier_set:
+            continue
         p = np.asarray(c["P_world"], dtype=np.float64)
-        color = COLOR_INLIER if i in inlier_set else COLOR_OUTLIER
-        chunks.append((_sphere_cluster(p, candidate_radius, candidate_count), color))
+        chunks.append((_sphere_cluster(p, candidate_radius, candidate_count), COLOR_INLIER))
 
     points = np.concatenate([c[0] for c in chunks], axis=0)
     colors = np.concatenate([
@@ -84,10 +85,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Export a colored marker .ply for fused.json")
     ap.add_argument("--fused", type=Path, required=True, help="bridge/fuse_multiview.py output (fused.json)")
     ap.add_argument("--output", type=Path, default=None, help="Output marker .ply (default: fused.parent / marker.ply)")
-    ap.add_argument("--marker-radius", type=float, default=0.05)
-    ap.add_argument("--marker-count", type=int, default=200)
-    ap.add_argument("--candidate-radius", type=float, default=0.015)
-    ap.add_argument("--candidate-count", type=int, default=40)
+    ap.add_argument("--marker-radius", type=float, default=0.08)
+    ap.add_argument("--marker-count", type=int, default=250)
+    ap.add_argument("--candidate-radius", type=float, default=0.028)
+    ap.add_argument("--candidate-count", type=int, default=55)
     args = ap.parse_args()
 
     with args.fused.open("r", encoding="utf-8") as f:
@@ -103,8 +104,10 @@ def main() -> None:
     )
     print(f"[summary] wrote {out}")
     print(f"          fused P_world: {fused['P_world']}")
-    print(f"          {len(fused.get('candidates', []))} candidates, "
-          f"{len(fused.get('inlier_indices', []))} inliers")
+    cands = fused.get("candidates", [])
+    inlier_set = set(fused.get("inlier_indices", []))
+    n_out = len(cands) - len(inlier_set)
+    print(f"          {len(inlier_set)} inliers shown, {n_out} outliers omitted")
 
 
 if __name__ == "__main__":

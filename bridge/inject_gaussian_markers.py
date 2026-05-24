@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Append marker Gaussians to a 3DGS-exported point_cloud.ply (same vertex schema).
 
-Reads ``fused.json`` for world position (``P_world`` or optional ``P_world_before_snap``).
-By default re-snaps that point to the nearest vertex on ``--ply`` so markers sit on the
-reconstruction you are viewing (see project notes on fuse-time vs view-time ply).
+Reads ``fused.json`` for world position ``P_world`` and injects marker Gaussians at
+those coordinates (no snap/resnap to ply vertices).
 
 Example:
   python bridge/inject_gaussian_markers.py \\
@@ -60,17 +59,6 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Inject marker Gaussians into 3DGS point_cloud.ply")
     ap.add_argument("--ply", type=Path, required=True, help="Source point_cloud.ply (base + markers)")
     ap.add_argument("--fused-json", type=Path, default=None)
-    ap.add_argument(
-        "--world-coords",
-        choices=("snap", "unsnapped"),
-        default="snap",
-        help="snap: fused['P_world']. unsnapped: fused['P_world_before_snap'] if present.",
-    )
-    ap.add_argument(
-        "--no-resnap-to-input-ply",
-        action="store_true",
-        help="Do not move marker center to nearest vertex on --ply (use json coords as-is).",
-    )
     ap.add_argument("--x", type=float, default=None)
     ap.add_argument("--y", type=float, default=None)
     ap.add_argument("--z", type=float, default=None)
@@ -87,27 +75,17 @@ def main() -> None:
     ap.add_argument("--jitter", type=float, default=0.012,
                     help="Std-dev of jitter around center in scene units (slightly bigger cloud).")
     ap.add_argument("--seed", type=int, default=0, help="RNG seed for marker jitter.")
-    ap.add_argument(
-        "--max-resnap-dist",
-        type=float,
-        default=None,
-        metavar="D",
-        help=(
-            "If set, only snap marker center to nearest PLY vertex when distance <= D (scene units). "
-            "Otherwise keep fused coordinates — avoids snapping to unrelated distant geometry on large clouds."
-        ),
-    )
     ap.add_argument("--out-iteration-dir", type=Path, default=None)
     ap.add_argument("--output", type=Path, default=None)
     ap.add_argument("--all-candidates", action="store_true",
-                    help="Inject ALL candidate points from fused.json (green=inlier, yellow=outlier, red=fused)")
+                    help="Inject inlier candidates (green) + fused point (red); outliers omitted")
     ap.add_argument(
         "--surface-push",
         type=float,
         default=0.0,
         metavar="M",
         help=(
-            "After resnap, shift center by M meters along (p - mean(nearest-k vertices)) "
+            "Shift center by M meters along (p - mean(nearest-k vertices)) "
             "to pull markers out of the interior of thick objects (try 0.02–0.08)."
         ),
     )
@@ -123,24 +101,16 @@ def main() -> None:
         nargs=3,
         default=(0.0, 0.0, 0.0),
         metavar=("DX", "DY", "DZ"),
-        help="Extra world-space translation added to marker center after resnap/push (scene units).",
+        help="Extra world-space translation added to marker center after push (scene units).",
     )
     args = ap.parse_args()
 
     if args.fused_json is not None:
         with args.fused_json.open("r", encoding="utf-8") as f:
             fused = json.load(f)
-        if args.world_coords == "unsnapped":
-            raw = fused.get("P_world_before_snap")
-            if raw is None:
-                raise SystemExit(
-                    "fused.json has no P_world_before_snap; use --world-coords snap or re-fuse with updated bridge."
-                )
-            px, py, pz = float(raw[0]), float(raw[1]), float(raw[2])
-        else:
-            px = float(fused["P_world"][0])
-            py = float(fused["P_world"][1])
-            pz = float(fused["P_world"][2])
+        px = float(fused["P_world"][0])
+        py = float(fused["P_world"][1])
+        pz = float(fused["P_world"][2])
     elif args.x is not None and args.y is not None and args.z is not None:
         px, py, pz = args.x, args.y, args.z
     else:
@@ -170,11 +140,12 @@ def main() -> None:
     op = _inverse_sigmoid(args.opacity_sigmoid)
     ls = float(args.log_scale)
 
-    def _make_marker_rows(center, rgb, count, jitter, rng):
+    def _make_marker_rows(center, rgb, count, jitter, rng, *, log_scale: float | None = None):
         cx, cy, cz = float(center[0]), float(center[1]), float(center[2])
         d2 = np.sum((xyz - np.array([cx, cy, cz])) ** 2, axis=1)
         ti = int(np.argmin(d2))
         r, g, b = _rgb_to_f_dc(np.asarray(rgb, dtype=np.float64))
+        ls_row = float(log_scale if log_scale is not None else ls)
         rows = []
         for _ in range(count):
             row = data[ti].copy()
@@ -193,9 +164,9 @@ def main() -> None:
                 if name.startswith("f_rest_"):
                     row[name] = 0.0
             row["opacity"] = op
-            row["scale_0"] = ls
-            row["scale_1"] = ls
-            row["scale_2"] = ls
+            row["scale_0"] = ls_row
+            row["scale_1"] = ls_row
+            row["scale_2"] = ls_row
             if all(f"rot_{i}" in props for i in range(4)):
                 row["rot_0"] = 1.0
                 row["rot_1"] = 0.0
@@ -213,29 +184,24 @@ def main() -> None:
         inlier_set = set(fused.get("inlier_indices", []))
         candidates = fused.get("candidates", [])
         for i, cand in enumerate(candidates):
+            if i not in inlier_set:
+                continue
             pw = np.array(cand["P_world"], dtype=np.float64)
-            if i in inlier_set:
-                rgb = [0.1, 0.9, 0.1]  # green
-            else:
-                rgb = [0.95, 0.85, 0.1]  # yellow
-            new_rows.extend(_make_marker_rows(pw, rgb, 20, args.jitter * 0.7, rng))
+            new_rows.extend(_make_marker_rows(
+                pw, [0.1, 0.9, 0.1], 8, args.jitter * 0.25, rng, log_scale=-3.9,
+            ))
         # Fused point in red (larger cluster)
         fused_p = np.array(fused["P_world"], dtype=np.float64)
         fused_p = _surface_push(fused_p, xyz, float(args.surface_push), int(args.surface_push_k))
         fused_p = fused_p + np.asarray(args.marker_offset, dtype=np.float64).reshape(3)
-        new_rows.extend(_make_marker_rows(fused_p, [0.98, 0.08, 0.06], args.marker_count, args.jitter, rng))
-        print(f"[info] injected {len(candidates)} candidates + 1 fused point "
-              f"({len(inlier_set)} inliers green, {len(candidates)-len(inlier_set)} outliers yellow, fused red)")
+        new_rows.extend(_make_marker_rows(
+            fused_p, [0.98, 0.08, 0.06], 24, args.jitter * 0.4, rng, log_scale=-3.1,
+        ))
+        n_out = len(candidates) - len(inlier_set)
+        print(f"[info] injected {len(inlier_set)} inlier candidates (green) + 1 fused (red); "
+              f"skipped {n_out} outliers")
     else:
         p0 = np.array([px, py, pz], dtype=np.float64)
-        if not args.no_resnap_to_input_ply:
-            p_snapped, rdist = _nearest_vertex(p0, xyz)
-            print(f"[info] json center {p0.tolist()}  -> resnap to input ply {p_snapped.tolist()}  (dist={rdist:.6f})")
-            maxd = args.max_resnap_dist
-            if maxd is not None and rdist > float(maxd):
-                print(f"[info] resnap distance {rdist:.6f} > --max-resnap-dist {maxd:g}; keeping json center (no snap).")
-            else:
-                p0 = p_snapped
         p0 = _surface_push(p0, xyz, float(args.surface_push), int(args.surface_push_k))
         off = np.asarray(args.marker_offset, dtype=np.float64).reshape(3)
         p0 = p0 + off

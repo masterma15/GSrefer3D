@@ -88,7 +88,7 @@ Excluded from data2 SFT (469 samples); same 3DGS scene; qualitative overlay only
 | Base | `000313_6c883d56` | — | 15 | Check `overlays_rgb/` qualitatively |
 | LoRA | `132142_6c883d56` | — | 17 | Same |
 
-No automatic 2D score; report as **qualitative overlay comparison** only. Teaser: [`../demo/teaser_holdout_tape.png`](../demo/teaser_holdout_tape.png).
+No automatic 2D score; report as **qualitative overlay comparison** only. Teaser: [`../demo/teaser_base_lora_tape.png`](../demo/teaser_base_lora_tape.png).
 
 ---
 
