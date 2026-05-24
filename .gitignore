@@ -1,9 +1,16 @@
 # Demo: only pipeline.png is in Git (README figure); Mermaid sources stay local
 demo/*
+!demo/README.md
 !demo/pipeline.png
-!demo/teaser_holdout_tape.png
+!demo/teaser_base_lora_tape.png
+!demo/teaser_base_lora_umbrella.png
+!demo/teaser_base_lora_shaver.png
+!demo/teaser_base_lora_rabbit.png
+!demo/teaser_base_lora_golden_retriever.png
 !demo/teaser_train_data.png
 !demo/teaser_depth_ablation.png
+!demo/teaser_3d_electric_shaver.gif
+!demo/teaser_3d_brown_rabbit.gif
 
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*

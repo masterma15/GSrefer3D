@@ -4,17 +4,18 @@
 Input: predictions.json produced by bridge/roborefer_client.py.
 
 Pipeline:
-  1. For every (view, point) pair, look up the matching depth_raw .npy and
-     camera JSON, then unproject (nx, ny) -> world coordinates. Points whose
-     stored expected_invdepth is below ``--min-inv`` (==> behind the far plane,
-     z_cam blowing up) are dropped.
+  1. For every (view, point) pair, look up depth_raw + camera JSON, then unproject
+     (nx, ny) -> world coordinates. With ``--depth-mode ray`` (default in CLI), z is
+     refined along the ray onto local Gaussians from ``--ply`` (see ``ray_unproject.py``);
+     otherwise use raster expected_invdepth at the pixel only.
+     Points below ``--min-inv`` are dropped.
   2. RANSAC vote: for each candidate world point P_i, count how many other
      candidates are within ``--inlier-radius`` of P_i. Keep the candidate with
      the largest support; ties broken by smallest mean distance.
   3. Refine: take the geometric median of inliers (Weiszfeld iterations),
      which is robust to remaining outliers vs a plain mean.
 
-Optional: snap to nearest Gaussian in point_cloud.ply when --ply is given.
+``--ply`` is only required for ``--depth-mode ray`` (per-view depth along the ray).
 
 Output: fused.json with the final P_world, inlier set, per-view candidates,
 and provenance fields.
@@ -37,6 +38,14 @@ sys.path.insert(0, str(_REPO / "bridge"))
 
 from unproject import CameraView, Unprojector  # noqa: E402
 
+try:
+    from ray_unproject import RayUnprojectConfig, unproject_with_ray_depth  # noqa: E402
+    from ray_visibility import RayOcclusionModel  # noqa: E402
+except ImportError:
+    RayUnprojectConfig = None  # type: ignore
+    unproject_with_ray_depth = None  # type: ignore
+    RayOcclusionModel = None  # type: ignore
+
 
 @dataclass
 class Candidate:
@@ -51,9 +60,12 @@ class Candidate:
     rgb_path: str
     camera_path: str
     depth_raw_path: str
+    z_cam_raw: float | None = None
+    depth_mode: str = "invdepth"
+    ray_meta: dict[str, Any] | None = None
 
     def to_record(self) -> dict[str, Any]:
-        return {
+        rec = {
             "view_id": self.view_id,
             "point_idx": self.point_idx,
             "nx": self.nx,
@@ -65,7 +77,13 @@ class Candidate:
             "rgb_path": self.rgb_path,
             "camera_path": self.camera_path,
             "depth_raw_path": self.depth_raw_path,
+            "depth_mode": self.depth_mode,
         }
+        if self.z_cam_raw is not None:
+            rec["z_cam_raw"] = self.z_cam_raw
+        if self.ray_meta is not None:
+            rec["ray"] = self.ray_meta
+        return rec
 
 
 @dataclass
@@ -74,8 +92,6 @@ class FusionResult:
     inlier_indices: list[int]
     support: int
     inlier_radius: float
-    snapped_to_gaussian: bool = False
-    snap_distance: float | None = None
     candidates: list[Candidate] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,8 +101,6 @@ class FusionResult:
             "num_candidates": len(self.candidates),
             "inlier_indices": self.inlier_indices,
             "inlier_radius": self.inlier_radius,
-            "snapped_to_gaussian": self.snapped_to_gaussian,
-            "snap_distance": self.snap_distance,
             "candidates": [c.to_record() for c in self.candidates],
         }
 
@@ -107,6 +121,9 @@ def gather_candidates(
     min_inv: float,
     inv_eps: float = 1e-6,
     depth_dir: Path | None = None,
+    depth_mode: str = "invdepth",
+    ray_model: Any | None = None,
+    ray_cfg: Any | None = None,
 ) -> list[Candidate]:
     root = Path(predictions["root"])
     out: list[Candidate] = []
@@ -131,11 +148,26 @@ def gather_candidates(
             nx = float(pt["nx"])
             ny = float(pt["ny"])
             u, v_pix = unp.normalized_to_pixel(nx, ny)
-            inv, z_cam = unp.sample_depth_raw(depth_path, u, v_pix, kind="expected_invdepth")
+            z_cam_raw: float | None = None
+            ray_meta: dict[str, Any] | None = None
+            mode = depth_mode
+            if depth_mode == "ray":
+                if ray_model is None or unproject_with_ray_depth is None:
+                    raise ValueError("depth_mode=ray requires scipy and ray_unproject module")
+                hit = unproject_with_ray_depth(
+                    view, unp, nx, ny, depth_path, ray_model, cfg=ray_cfg, kind="expected_invdepth"
+                )
+                inv = float(hit["stored_value"])
+                z_cam = float(hit["z_cam"])
+                z_cam_raw = float(hit["z_cam_raw"])
+                p_world = np.asarray(hit["P_world"], dtype=np.float64)
+                ray_meta = hit.get("ray")
+                u, v_pix = hit["pixel"]
+            else:
+                inv, z_cam = unp.sample_depth_raw(depth_path, u, v_pix, kind="expected_invdepth")
+                _, p_world, _ = unp.normalized_to_world(nx, ny, z_cam)
             if inv < min_inv:
-                # depth too small -> z explodes; treat as miss
                 continue
-            _, p_world, _ = unp.normalized_to_world(nx, ny, z_cam)
             out.append(Candidate(
                 view_id=int(v["view_id"]),
                 point_idx=pi,
@@ -148,6 +180,9 @@ def gather_candidates(
                 rgb_path=str(rgb_path).replace("\\", "/"),
                 camera_path=str(cam_path).replace("\\", "/"),
                 depth_raw_path=str(depth_path).replace("\\", "/"),
+                z_cam_raw=z_cam_raw,
+                depth_mode=mode,
+                ray_meta=ray_meta,
             ))
     return out
 
@@ -169,7 +204,6 @@ def ransac_select_inliers(
     n = points.shape[0]
     if n == 0:
         return [], 0
-    # pairwise distance matrix is fine for typical N <= a few dozens
     diff = points[:, None, :] - points[None, :, :]
     d = np.linalg.norm(diff, axis=2)
     within = d <= radius
@@ -199,7 +233,6 @@ def geometric_median(points: np.ndarray, *, iters: int = 64, eps: float = 1e-7) 
     for _ in range(iters):
         d = np.linalg.norm(points - x, axis=1)
         if np.any(d < eps):
-            # if x already coincides with one point, return that point (median)
             return points[int(np.argmin(d))].copy()
         w = 1.0 / d
         x_new = (points * w[:, None]).sum(axis=0) / w.sum()
@@ -207,39 +240,6 @@ def geometric_median(points: np.ndarray, *, iters: int = 64, eps: float = 1e-7) 
             return x_new
         x = x_new
     return x
-
-
-# ---------------------------------------------------------------------------
-# Optional snap-to-gaussian
-# ---------------------------------------------------------------------------
-
-
-def load_ply_xyz(path: Path) -> np.ndarray:
-    from plyfile import PlyData
-
-    ply = PlyData.read(str(path))
-    v = ply.elements[0]
-    return np.stack(
-        [np.asarray(v["x"]), np.asarray(v["y"]), np.asarray(v["z"])], axis=1
-    ).astype(np.float64)
-
-
-def snap_to_gaussian(p: np.ndarray, xyz: np.ndarray) -> tuple[np.ndarray, float]:
-    try:
-        from scipy.spatial import cKDTree
-
-        tree = cKDTree(xyz)
-        dist, idx = tree.query(p, k=1)
-        return xyz[int(idx)].copy(), float(dist)
-    except ImportError:
-        d = np.linalg.norm(xyz - p, axis=1)
-        i = int(np.argmin(d))
-        return xyz[i].copy(), float(d[i])
-
-
-# ---------------------------------------------------------------------------
-# Top-level fuse()
-# ---------------------------------------------------------------------------
 
 
 def iterative_refine(
@@ -277,11 +277,43 @@ def fuse(
     inlier_radius: float,
     min_inv: float,
     refine: bool = True,
-    refine_k: float = 2.0,
+    refine_k: float = 1.35,
     ply_path: Path | None = None,
     depth_dir: Path | None = None,
+    depth_mode: str = "invdepth",
+    ray_perp_radius: float = 0.06,
+    ray_pixel_radius: float = 6.0,
+    ray_z_band: float = 2.0,
+    ray_min_alpha: float = 0.45,
 ) -> FusionResult:
-    cands = gather_candidates(predictions, min_inv=min_inv, depth_dir=depth_dir)
+    ray_model = None
+    ray_cfg = None
+    if depth_mode == "ray":
+        if ply_path is None or not ply_path.is_file():
+            raise SystemExit("depth_mode=ray requires --ply (3DGS point_cloud.ply)")
+        if RayOcclusionModel is None:
+            raise SystemExit("depth_mode=ray requires scipy (envGS)")
+        ray_model = RayOcclusionModel.from_ply(ply_path, perp_radius=ray_perp_radius)
+        ray_cfg = RayUnprojectConfig(
+            perp_radius=ray_perp_radius,
+            pixel_radius=ray_pixel_radius,
+            z_band_frac=ray_z_band,
+            min_alpha_on_ray=ray_min_alpha,
+        )
+        print(
+            f"[fuse] depth_mode=ray ply={ply_path} "
+            f"perp={ray_perp_radius} px={ray_pixel_radius} z_band={ray_z_band} "
+            f"min_alpha={ray_min_alpha}",
+            file=sys.stderr,
+        )
+    cands = gather_candidates(
+        predictions,
+        min_inv=min_inv,
+        depth_dir=depth_dir,
+        depth_mode=depth_mode,
+        ray_model=ray_model,
+        ray_cfg=ray_cfg,
+    )
     if not cands:
         raise SystemExit("no usable candidates after gathering (check parse_ok / depth_raw / min-inv)")
     pts = np.stack([c.P_world for c in cands], axis=0)
@@ -293,23 +325,11 @@ def fuse(
     else:
         fused = geometric_median(pts[inliers]) if inliers else pts.mean(axis=0)
 
-    snapped = False
-    snap_d: float | None = None
-    if ply_path is not None:
-        if not ply_path.is_file():
-            print(f"[warn] ply not found, skip snap: {ply_path}", file=sys.stderr)
-        else:
-            xyz = load_ply_xyz(ply_path)
-            fused, snap_d = snap_to_gaussian(fused, xyz)
-            snapped = True
-
     return FusionResult(
         P_world=fused,
         inlier_indices=inliers,
         support=support,
         inlier_radius=inlier_radius,
-        snapped_to_gaussian=snapped,
-        snap_distance=snap_d,
         candidates=cands,
     )
 
@@ -322,17 +342,32 @@ def fuse(
 def main() -> None:
     ap = argparse.ArgumentParser(description="Fuse per-view RoboRefer predictions into a single 3D point.")
     ap.add_argument("--predictions", type=Path, required=True, help="predictions.json from roborefer_client.py")
-    ap.add_argument("--inlier-radius", type=float, default=0.5, help="RANSAC inlier threshold in scene units")
+    ap.add_argument("--inlier-radius", type=float, default=5.0, help="RANSAC inlier threshold in scene units")
     ap.add_argument("--min-inv", type=float, default=1e-3,
                     help="Drop candidates whose expected_invdepth is below this (z_cam too far / sky)")
-    ap.add_argument("--ply", type=Path, default=None, help="Optional point_cloud.ply for snap-to-gaussian")
+    ap.add_argument("--ply", type=Path, default=None,
+                    help="point_cloud.ply (required for --depth-mode ray)")
     ap.add_argument("--no-refine", action="store_true", help="Disable iterative refinement after RANSAC")
-    ap.add_argument("--refine-k", type=float, default=2.0, help="Refinement threshold multiplier (k * median_dist)")
+    ap.add_argument("--refine-k", type=float, default=1.35, help="Refinement threshold multiplier (k * median_dist)")
     ap.add_argument("--output", type=Path, default=None, help="Where to write fused.json (default: predictions sibling)")
     ap.add_argument("--depth-dir", type=Path, default=None,
                     help="Override depth_raw directory (e.g. depth_raw_dav2/ for DAv2-aligned depth)")
     ap.add_argument("--exclude", type=int, nargs="+", default=None,
                     help="View IDs to exclude from fusion (e.g. --exclude 5 24)")
+    ap.add_argument(
+        "--depth-mode",
+        choices=("invdepth", "ray"),
+        default="ray",
+        help="invdepth: raster 1/inv at pixel; ray: refine z along ray using --ply Gaussians",
+    )
+    ap.add_argument("--ray-perp-radius", type=float, default=0.06,
+                    help="Cylinder radius (m) for ray Gaussians query (depth_mode=ray)")
+    ap.add_argument("--ray-pixel-radius", type=float, default=6.0,
+                    help="Max |du|,|dv| in pixels from click (depth_mode=ray)")
+    ap.add_argument("--ray-z-band", type=float, default=2.0,
+                    help="Keep Gaussians with z_cam in [z0*(1-band), z0*(1+band)]")
+    ap.add_argument("--ray-min-alpha", type=float, default=0.45,
+                    help="Min ray alpha (opacity*falloff) for a local Gaussian to count")
     args = ap.parse_args()
 
     with args.predictions.open("r", encoding="utf-8") as f:
@@ -353,18 +388,23 @@ def main() -> None:
         refine_k=args.refine_k,
         ply_path=args.ply,
         depth_dir=args.depth_dir,
+        depth_mode=args.depth_mode,
+        ray_perp_radius=args.ray_perp_radius,
+        ray_pixel_radius=args.ray_pixel_radius,
+        ray_z_band=args.ray_z_band,
+        ray_min_alpha=args.ray_min_alpha,
     )
 
     out = args.output or (args.predictions.parent / "fused.json")
     out.parent.mkdir(parents=True, exist_ok=True)
+    payload = result.to_dict()
+    payload["depth_mode"] = args.depth_mode
     with out.open("w", encoding="utf-8") as f:
-        json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
     p = result.P_world
     print(f"[summary] P_world=({p[0]:.4f}, {p[1]:.4f}, {p[2]:.4f})")
     print(f"          support={result.support}/{len(result.candidates)} inlier_radius={result.inlier_radius}")
-    if result.snapped_to_gaussian:
-        print(f"          snap_distance={result.snap_distance:.4f}")
     print(f"[summary] wrote {out}")
 
 
