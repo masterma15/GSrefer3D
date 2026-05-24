@@ -105,19 +105,26 @@ def main() -> None:
     p.add_argument("--demo-dir", type=Path, default=Path(__file__).resolve().parents[1] / "demo")
     p.add_argument("--min-mb", type=float, default=5.0)
     p.add_argument("--max-mb", type=float, default=10.0)
+    p.add_argument(
+        "--suffix",
+        type=str,
+        default="",
+        help="If set (e.g. _preview), write stem{suffix}.gif; default overwrites source (avoid for committed full-res files).",
+    )
     p.add_argument("--no-backup", action="store_true")
     args = p.parse_args()
     names = ["teaser_3d_electric_shaver.gif", "teaser_3d_brown_rabbit.gif"]
     for name in names:
         src = args.demo_dir / name
+        dst = src.with_name(f"{src.stem}{args.suffix}{src.suffix}") if args.suffix else src
         size = compress_one(
             src,
-            src,
+            dst,
             target_min_mb=args.min_mb,
             target_max_mb=args.max_mb,
-            backup=not args.no_backup,
+            backup=not args.no_backup and dst == src,
         )
-        print(f"{name}: {size / 1e6:.2f} MB")
+        print(f"{dst.name}: {size / 1e6:.2f} MB")
 
 
 if __name__ == "__main__":

@@ -5,8 +5,10 @@
 | `pipeline.png` | **Yes** | End-to-end diagram; root [README](../README.md) |
 | `teaser_depth_ablation.png` | **Yes** | Depth source ablation bar chart |
 | `teaser_train_data.png` | **Yes** | SFT label refine (proj → mask centroid) |
-| `teaser_3d_electric_shaver.gif` | **Yes** | SIBR orbit — electric shaver 3D anchor (LoRA); ~10 MB (960px, optimized) |
-| `teaser_3d_brown_rabbit.gif` | **Yes** | SIBR orbit — brown rabbit 3D anchor (LoRA); ~6 MB (960px, optimized) |
+| `teaser_3d_electric_shaver.gif` | **Yes** | SIBR orbit — electric shaver 3D anchor (LoRA); **1718×958** full-res (~58 MB) |
+| `teaser_3d_brown_rabbit.gif` | **Yes** | SIBR orbit — brown rabbit 3D anchor (LoRA); **1718×958** full-res (~36 MB) |
+| `teaser_3d_electric_shaver.gif.orig` | **Yes** | Same as above (explicit backup copy) |
+| `teaser_3d_brown_rabbit.gif.orig` | **Yes** | Same as above (explicit backup copy) |
 | `teaser_base_lora_umbrella.png` | **Yes** | Base vs LoRA overlays — umbrella |
 | `teaser_base_lora_golden_retriever.png` | **Yes** | Base vs LoRA overlays — golden retriever |
 | `teaser_base_lora_rabbit.png` | **Yes** | Base vs LoRA overlays — brown rabbit |
@@ -30,15 +32,15 @@ python bridge/make_e2e_teaser.py --preset golden_retriever --output demo/teaser_
 Presets: `tape`, `shaver`, `rabbit`, `umbrella`, `golden_retriever` (run IDs from `docs/RESULTS.md`).  
 Requires existing `runs/<run_id>/overlays_rgb/overlay_view_*.png` from `run_bridge_e2e.py`.
 
-### Recompress SIBR GIFs (~5–10 MB for GitHub)
+### Optional: smaller GIFs for slow networks
 
-From repo root (needs **Pillow**):
+Full-res SIBR GIFs are large but clearer (README uses them). To generate **~5–10 MB** previews **without overwriting** the committed files:
 
 ```powershell
-python bridge/compress_demo_gif.py --demo-dir demo
+python bridge/compress_demo_gif.py --demo-dir demo --suffix _preview
 ```
 
-Overwrites `teaser_3d_*.gif` in place; first run keeps `.gif.orig` backups locally (gitignored).
+Writes `teaser_3d_*_preview.gif` locally only (not tracked in Git).
 
 | `pipeline_overview.mmd` | local | Mermaid source for `pipeline.png` |
 
