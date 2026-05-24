@@ -11,6 +11,7 @@ demo/*
 !demo/teaser_depth_ablation.png
 !demo/teaser_3d_electric_shaver.gif
 !demo/teaser_3d_brown_rabbit.gif
+demo/*.gif.orig
 
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*
