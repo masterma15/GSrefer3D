@@ -6,6 +6,22 @@
 
 ---
 
+## Chronology (same order as [README](../README.md))
+
+| Step | What | Where in this doc |
+|------|------|-------------------|
+| 1 | Depth ablation (z₀ source) | §1 |
+| 2 | Manual OBB in CloudCompare | [`bbox_data2.json`](bbox_data2.json), [`bbox_labels/`](bbox_labels/) |
+| 3 | Initial fusion (invdepth + snap) → 469 SFT pack | README §3; train-data teaser |
+| 4 | LoRA on `data2_location` | Training run (not tabulated here) |
+| 5 | Base vs LoRA — in-domain 2D + hold-out tape | §2, §3 |
+| 6 | RefSpatial-Expand-Bench (OOD) | §4 |
+| 7 | Ray fusion → `fused_ray.json` + OBB hit vs manual box | §2b |
+
+**Fusion naming:** **`fused.json`** = historical e2e (invdepth + snap). **`fused_ray.json`** = same predictions, ray depth pull-in (step 7 only).
+
+---
+
 ## How to read these tables
 
 | Metric | Primary for README / interview? | Notes |
