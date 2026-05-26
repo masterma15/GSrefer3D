@@ -50,7 +50,16 @@ PRESETS: dict[str, dict[str, str]] = {
         "lora_run": "20260519_143457_4c3b9a32",
         "out_name": "iteration_obb_shaver",
     },
+    "brown_rabbit": {
+        "object_key": "brown_rabbit",
+        "base_run": "20260519_171359_147bac82",
+        "lora_run": "20260519_144845_147bac82",
+        "out_name": "iteration_obb_rabbit",
+    },
 }
+
+# Same objects as demo/teaser_3d_*.gif (SIBR anchor recordings)
+GIF_OBJECT_PRESETS = ("electric_shaver", "brown_rabbit")
 
 
 def _inverse_sigmoid(p: float) -> float:
@@ -89,9 +98,13 @@ def inject_obb_compare(
     lora_p: np.ndarray,
     out_iteration_dir: Path | None = None,
     output: Path | None = None,
-    wireframe_step_m: float = 0.025,
-    wireframe_per_point: int = 2,
-    marker_count: int = 36,
+    wireframe_step_m: float = 0.035,
+    wireframe_per_point: int = 1,
+    marker_count: int = 18,
+    wireframe_log_scale: float = -5.0,
+    marker_log_scale: float = -4.2,
+    wireframe_jitter: float = 0.002,
+    marker_jitter: float = 0.005,
     seed: int = 0,
 ) -> Path:
     src = ply.resolve()
@@ -159,9 +172,18 @@ def inject_obb_compare(
                 new_rows.append(tuple(row))
 
     wf = obb_wireframe_samples(obb, step_m=wireframe_step_m)
-    _append_points(wf, (0.05, 0.85, 0.95), count=wireframe_per_point, jitter=0.004, log_scale=-4.2)
-    _append_points(base_p.reshape(1, 3), (0.15, 0.45, 0.95), count=marker_count, jitter=0.010, log_scale=-3.2)
-    _append_points(lora_p.reshape(1, 3), (0.90, 0.15, 0.85), count=marker_count, jitter=0.010, log_scale=-3.2)
+    _append_points(
+        wf, (0.05, 0.85, 0.95),
+        count=wireframe_per_point, jitter=wireframe_jitter, log_scale=wireframe_log_scale,
+    )
+    _append_points(
+        base_p.reshape(1, 3), (0.15, 0.45, 0.95),
+        count=marker_count, jitter=marker_jitter, log_scale=marker_log_scale,
+    )
+    _append_points(
+        lora_p.reshape(1, 3), (0.90, 0.15, 0.85),
+        count=marker_count, jitter=marker_jitter, log_scale=marker_log_scale,
+    )
 
     extra = np.array(new_rows, dtype=data.dtype)
     merged = np.empty(n + len(extra), dtype=data.dtype)
@@ -210,12 +232,22 @@ def main() -> None:
     ap.add_argument("--out-iteration-dir", type=Path, default=None)
     ap.add_argument("--output", type=Path, default=None)
     ap.add_argument("--model-path", type=Path, default=_REPO / "3DGS/gaussian-splatting/output/data2")
-    ap.add_argument("--wireframe-step", type=float, default=0.025)
-    ap.add_argument("--all-presets", action="store_true", help="Inject demo presets (tape + shaver)")
+    ap.add_argument("--wireframe-step", type=float, default=0.035, help="Sample spacing (m) along OBB edges")
+    ap.add_argument("--marker-count", type=int, default=18, help="Gaussians per Base/LoRA point")
+    ap.add_argument("--wireframe-log-scale", type=float, default=-5.0, help="log scale for wireframe (more negative = thinner)")
+    ap.add_argument("--marker-log-scale", type=float, default=-4.2, help="log scale for Base/LoRA markers")
+    ap.add_argument("--all-presets", action="store_true", help="Inject tape + shaver + rabbit presets")
+    ap.add_argument(
+        "--gif-presets",
+        action="store_true",
+        help="Inject electric_shaver + brown_rabbit (same as demo/teaser_3d_*.gif)",
+    )
     args = ap.parse_args()
 
     objects = load_bbox(args.bbox)
     presets = list(PRESETS.values()) if args.all_presets else []
+    if args.gif_presets:
+        presets = [PRESETS[k] for k in GIF_OBJECT_PRESETS]
     if args.preset:
         presets = [PRESETS[args.preset]]
     if not presets:
@@ -252,6 +284,9 @@ def main() -> None:
             out_iteration_dir=out_dir,
             output=args.output,
             wireframe_step_m=args.wireframe_step,
+            marker_count=args.marker_count,
+            wireframe_log_scale=args.wireframe_log_scale,
+            marker_log_scale=args.marker_log_scale,
         )
         written.append(out_path)
         iter_name = out_dir.name
