@@ -15,6 +15,8 @@ demo/*
 !demo/teaser_3d_brown_rabbit.gif.orig
 !demo/teaser_obb_lora_in_out.png
 !demo/teaser_obb_miss_offset.png
+!demo/shaver.gif
+!demo/tap.gif
 
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*

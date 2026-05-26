@@ -63,11 +63,25 @@ Set-Location 3DGS/gaussian-splatting/viewers/bin
 .\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration obb_tape
 ```
 
-**SIBR (injected Gaussians):** cyan = OBB wireframe · blue = Base · magenta = LoRA (`inject_obb_compare.py`).
+**SIBR (injected Gaussians):** cyan = OBB wireframe · blue = Base `fused.json` · magenta = LoRA `fused_ray.json` ([`inject_obb_compare.py`](bridge/inject_obb_compare.py)).
 
-![OBB eval — LoRA in-box vs out-of-box (ray depth)](demo/teaser_obb_lora_in_out.png)
+```powershell
+python bridge/inject_obb_compare.py --preset electric_shaver   # → iteration_obb_shaver
+python bridge/inject_obb_compare.py --preset double_sided_tape  # → iteration_obb_tape
+# or both GIF objects: python bridge/inject_obb_compare.py --gif-presets
+```
 
-![OBB outside offset — Base vs LoRA](demo/teaser_obb_miss_offset.png)
+**Electric shaver** — OBB + Base/LoRA points in SIBR (`iteration_obb_shaver`). Both models hit the hand-labeled OBB; ray LoRA point (magenta) vs Base (blue).
+
+![Electric shaver — OBB wireframe + Base/LoRA fused points in SIBR](demo/shaver.gif)
+
+**Double-sided tape (hold-out)** — same scene; **Base miss** (blue outside box) · **LoRA hit** (magenta inside) after `fused_ray.json` (`iteration_obb_tape`).
+
+![Double-sided tape — OBB + Base/LoRA in SIBR (hold-out)](demo/tap.gif)
+
+![OBB eval — LoRA in-box vs out-of-box (ray depth, matplotlib)](demo/teaser_obb_lora_in_out.png)
+
+![OBB outside offset — Base vs LoRA (bar chart)](demo/teaser_obb_miss_offset.png)
 
 **Manual OBB labeling (CloudCompare)** — segment object points, then **Edit clipping box**; copy center / dimensions / rotation into JSON (see per-object `screenshot` paths in `bbox_data2.json` → `docs/bbox_labels/` when saved locally).
 
@@ -152,6 +166,8 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 | [`demo/teaser_3d_brown_rabbit.gif`](demo/teaser_3d_brown_rabbit.gif) | **Yes** | SIBR 3D anchor — brown rabbit (1718×958, ~36 MB) |
 | [`demo/teaser_obb_lora_in_out.png`](demo/) | **Yes** | OBB in-box vs out-of-box (LoRA ray; README) |
 | [`demo/teaser_obb_miss_offset.png`](demo/) | **Yes** | OBB outside-offset bar chart (README) |
+| [`demo/shaver.gif`](demo/shaver.gif) | **Yes** | SIBR OBB + Base/LoRA points — electric shaver (README) |
+| [`demo/tap.gif`](demo/tap.gif) | **Yes** | SIBR OBB + Base/LoRA points — double-sided tape hold-out (README) |
 | [`demo/teaser_3d_*.gif.orig`](demo/) | **Yes** | Explicit backup copies of the SIBR GIFs |
 | `docs/` (public) | **8 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), 2D/3D eval JSON, [`bbox_data2.json`](docs/bbox_data2.json), optional `bbox_labels/` screenshots |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
