@@ -1,7 +1,7 @@
 # Experimental results (GSrefer3D · data2)
 
-> Last updated: 2026-05-21  
-> Raw 2D metrics: [`results_2d_eval.json`](results_2d_eval.json) · Depth ablation: [`depth_compare_batch.json`](depth_compare_batch.json)  
+> Last updated: 2026-05-26  
+> Raw 2D metrics: [`results_2d_eval.json`](results_2d_eval.json) · Depth ablation: [`depth_compare_batch.json`](depth_compare_batch.json) · 3D OBB: [`results_3d_obb_hit.json`](results_3d_obb_hit.json)  
 > Pipeline figure: [`../demo/pipeline.png`](../demo/pipeline.png)
 
 ---
@@ -76,6 +76,30 @@ Details: [`depth_compare_batch.json`](depth_compare_batch.json) · figure: [`../
 
 **Summary (10/10 training objects):** LoRA **median L2 ≤ Base** on every object. Largest gains: **umbrella** (−0.056), **golden retriever** (−0.053), **brown rabbit** (−0.031).  
 Overlays: `3DGS/test2/runs/<run_id>/overlays_rgb/view_XXX.png` (local; not in Git).
+
+---
+
+## 2b. 3D OBB hit rate (manual CloudCompare OBB)
+
+11 objects · GT = hand OBB in [`bbox_data2.json`](bbox_data2.json) · **Base** `fused.json` · **LoRA** `fused_ray.json` (ray depth re-fuse).
+
+| Object | Base hit | LoRA hit | Base outside (m) | LoRA outside (m) |
+|--------|:--------:|:--------:|------------------:|------------------:|
+| Electric shaver | ✓ | ✓ | 0.000 | 0.000 |
+| Brown rabbit | ✓ | ✓ | 0.000 | 0.000 |
+| Golden retriever | ✓ | ✓ | 0.000 | 0.000 |
+| Umbrella | ✓ | ✓ | 0.000 | 0.000 |
+| Toy cake | ✓ | ✓ | 0.000 | 0.000 |
+| Medicine bottle | ✓ | ✓ | 0.000 | 0.000 |
+| Bracelet | ✓ | ✓ | 0.000 | 0.000 |
+| Cookie bag | ✗ | ✓ | 0.006 | 0.000 |
+| Golden bowl | ✗ | ✓ | 0.126 | 0.000 |
+| Double-sided tape | ✗ | ✓ | 0.056 | 0.000 |
+| Hair clip | ✗ | ✗ | 0.086 | 0.104 |
+
+**Hit rate:** Base **63.6%** (7/11) · LoRA **90.9%** (10/11).  
+Reproduce: `python bridge/eval_3d_obb_offset.py --refuse-lora-ray` · SIBR: `python bridge/inject_obb_compare.py --all-presets`  
+JSON: [`results_3d_obb_hit.json`](results_3d_obb_hit.json) · [`results_3d_obb_offset.json`](results_3d_obb_offset.json)
 
 ---
 

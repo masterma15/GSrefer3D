@@ -1,0 +1,675 @@
+{
+  "summary": {
+    "obb_hit_rate_pct": {
+      "Base": 63.6,
+      "LoRA": 90.9
+    },
+    "n_evaluated": {
+      "Base": 11,
+      "LoRA": 11
+    },
+    "per_object": [
+      {
+        "object_key": "bracelet",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "brown_rabbit",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "cookie_bag",
+        "Base": false,
+        "LoRA": true
+      },
+      {
+        "object_key": "double_sided_tape",
+        "Base": false,
+        "LoRA": true
+      },
+      {
+        "object_key": "electric_shaver",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "golden_bowl",
+        "Base": false,
+        "LoRA": true
+      },
+      {
+        "object_key": "golden_retriever",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "hair_clip",
+        "Base": false,
+        "LoRA": false
+      },
+      {
+        "object_key": "medicine_bottle",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "toy_cake",
+        "Base": true,
+        "LoRA": true
+      },
+      {
+        "object_key": "umbrella",
+        "Base": true,
+        "LoRA": true
+      }
+    ]
+  },
+  "runs": [
+    {
+      "object_key": "electric_shaver",
+      "object": "剃须刀",
+      "group": "Base",
+      "run_id": "20260519_170540_4c3b9a32",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -0.734323,
+        1.186207,
+        2.088301
+      ],
+      "support": 24,
+      "hold_out": false,
+      "obb_local": [
+        -0.144436,
+        -0.04238,
+        -0.142875
+      ],
+      "obb_half_extent": [
+        0.250852,
+        0.284286,
+        0.687712
+      ],
+      "obb_max_axis_excess": -0.106416,
+      "obb_hit": true,
+      "aabb_hit": true
+    },
+    {
+      "object_key": "electric_shaver",
+      "object": "剃须刀",
+      "group": "LoRA",
+      "run_id": "20260519_143457_4c3b9a32",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -0.782587,
+        1.147732,
+        2.126437
+      ],
+      "support": 10,
+      "hold_out": false,
+      "obb_local": [
+        -0.162897,
+        -0.030406,
+        -0.073739
+      ],
+      "obb_half_extent": [
+        0.250852,
+        0.284286,
+        0.687712
+      ],
+      "obb_max_axis_excess": -0.087955,
+      "obb_hit": true,
+      "aabb_hit": true
+    },
+    {
+      "object_key": "brown_rabbit",
+      "object": "棕兔",
+      "group": "Base",
+      "run_id": "20260519_171359_147bac82",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        0.306356,
+        0.133716,
+        1.509016
+      ],
+      "support": 42,
+      "hold_out": false,
+      "obb_local": [
+        -0.039636,
+        -0.635316,
+        -0.218787
+      ],
+      "obb_half_extent": [
+        0.639077,
+        0.887571,
+        0.867824
+      ],
+      "obb_max_axis_excess": -0.252254,
+      "obb_hit": true,
+      "aabb_hit": true
+    },
+    {
+      "object_key": "brown_rabbit",
+      "object": "棕兔",
+      "group": "LoRA",
+      "run_id": "20260519_144845_147bac82",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        0.157813,
+        0.235507,
+        1.901686
+      ],
+      "support": 29,
+      "hold_out": false,
+      "obb_local": [
+        -0.030984,
+        -0.320067,
+        0.076441
+      ],
+      "obb_half_extent": [
+        0.639077,
+        0.887571,
+        0.867824
+      ],
+      "obb_max_axis_excess": -0.567503,
+      "obb_hit": true,
+      "aabb_hit": true
+    },
+    {
+      "object_key": "golden_retriever",
+      "object": "金毛",
+      "group": "Base",
+      "run_id": "20260519_172627_f8dbfcc3",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -0.42367,
+        1.119851,
+        0.411112
+      ],
+      "support": 48,
+      "hold_out": false,
+      "obb_local": [
+        -0.52465,
+        -0.64279,
+        -0.057902
+      ],
+      "obb_half_extent": [
+        1.056132,
+        0.89109,
+        0.60415
+      ],
+      "obb_max_axis_excess": -0.2483,
+      "obb_hit": true
+    },
+    {
+      "object_key": "golden_retriever",
+      "object": "金毛",
+      "group": "LoRA",
+      "run_id": "20260519_154013_f8dbfcc3",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -0.299308,
+        1.360523,
+        0.733367
+      ],
+      "support": 43,
+      "hold_out": false,
+      "obb_local": [
+        -0.38634,
+        -0.246952,
+        -0.020235
+      ],
+      "obb_half_extent": [
+        1.056132,
+        0.89109,
+        0.60415
+      ],
+      "obb_max_axis_excess": -0.583915,
+      "obb_hit": true
+    },
+    {
+      "object_key": "golden_bowl",
+      "object": "金碗",
+      "group": "Base",
+      "run_id": "20260519_173958_8d83a715",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        1.935117,
+        1.447439,
+        1.220023
+      ],
+      "support": 36,
+      "hold_out": false,
+      "obb_local": [
+        -0.102141,
+        0.162594,
+        -0.344704
+      ],
+      "obb_half_extent": [
+        0.434038,
+        0.431463,
+        0.219109
+      ],
+      "obb_max_axis_excess": 0.125595,
+      "obb_hit": false
+    },
+    {
+      "object_key": "golden_bowl",
+      "object": "金碗",
+      "group": "LoRA",
+      "run_id": "20260519_154649_8d83a715",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        1.994551,
+        1.472595,
+        1.446154
+      ],
+      "support": 11,
+      "hold_out": false,
+      "obb_local": [
+        -0.040821,
+        0.00213,
+        -0.184106
+      ],
+      "obb_half_extent": [
+        0.434038,
+        0.431463,
+        0.219109
+      ],
+      "obb_max_axis_excess": -0.035003,
+      "obb_hit": true
+    },
+    {
+      "object_key": "umbrella",
+      "object": "雨伞",
+      "group": "Base",
+      "run_id": "20260519_174835_d7bab60f",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -1.003836,
+        2.512227,
+        0.362049
+      ],
+      "support": 11,
+      "hold_out": false,
+      "obb_local": [
+        -1.036016,
+        -0.144204,
+        0.279297
+      ],
+      "obb_half_extent": [
+        1.245722,
+        0.292704,
+        0.480328
+      ],
+      "obb_max_axis_excess": -0.1485,
+      "obb_hit": true
+    },
+    {
+      "object_key": "umbrella",
+      "object": "雨伞",
+      "group": "LoRA",
+      "run_id": "20260519_160219_d7bab60f",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -0.311664,
+        2.867073,
+        0.002605
+      ],
+      "support": 6,
+      "hold_out": false,
+      "obb_local": [
+        -0.2148,
+        -0.062786,
+        0.048667
+      ],
+      "obb_half_extent": [
+        1.245722,
+        0.292704,
+        0.480328
+      ],
+      "obb_max_axis_excess": -0.229918,
+      "obb_hit": true
+    },
+    {
+      "object_key": "toy_cake",
+      "object": "玩具蛋糕",
+      "group": "Base",
+      "run_id": "20260519_175733_7dd80c38",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -0.102445,
+        0.597032,
+        1.694512
+      ],
+      "support": 28,
+      "hold_out": false,
+      "obb_local": [
+        -0.194452,
+        -0.2209,
+        0.052254
+      ],
+      "obb_half_extent": [
+        0.349328,
+        0.447114,
+        0.389997
+      ],
+      "obb_max_axis_excess": -0.154877,
+      "obb_hit": true
+    },
+    {
+      "object_key": "toy_cake",
+      "object": "玩具蛋糕",
+      "group": "LoRA",
+      "run_id": "20260519_161222_7dd80c38",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -0.115499,
+        0.529595,
+        1.731175
+      ],
+      "support": 15,
+      "hold_out": false,
+      "obb_local": [
+        -0.157561,
+        -0.247485,
+        0.115457
+      ],
+      "obb_half_extent": [
+        0.349328,
+        0.447114,
+        0.389997
+      ],
+      "obb_max_axis_excess": -0.191768,
+      "obb_hit": true
+    },
+    {
+      "object_key": "cookie_bag",
+      "object": "饼干袋",
+      "group": "Base",
+      "run_id": "20260519_180800_e51c780a",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -1.296172,
+        1.964757,
+        1.557741
+      ],
+      "support": 17,
+      "hold_out": false,
+      "obb_local": [
+        0.16908,
+        -0.101923,
+        -0.027723
+      ],
+      "obb_half_extent": [
+        0.274308,
+        0.096404,
+        0.419436
+      ],
+      "obb_max_axis_excess": 0.005519,
+      "obb_hit": false
+    },
+    {
+      "object_key": "cookie_bag",
+      "object": "饼干袋",
+      "group": "LoRA",
+      "run_id": "20260519_162019_e51c780a",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -1.323,
+        1.940643,
+        1.610413
+      ],
+      "support": 12,
+      "hold_out": false,
+      "obb_local": [
+        0.124156,
+        -0.084499,
+        0.014155
+      ],
+      "obb_half_extent": [
+        0.274308,
+        0.096404,
+        0.419436
+      ],
+      "obb_max_axis_excess": -0.011905,
+      "obb_hit": true
+    },
+    {
+      "object_key": "medicine_bottle",
+      "object": "药瓶",
+      "group": "Base",
+      "run_id": "20260519_182106_04149b86",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        0.407006,
+        1.986273,
+        0.349376
+      ],
+      "support": 33,
+      "hold_out": false,
+      "obb_local": [
+        -0.03268,
+        -0.355473,
+        -0.094916
+      ],
+      "obb_half_extent": [
+        0.243656,
+        0.459955,
+        0.237831
+      ],
+      "obb_max_axis_excess": -0.104482,
+      "obb_hit": true
+    },
+    {
+      "object_key": "medicine_bottle",
+      "object": "药瓶",
+      "group": "LoRA",
+      "run_id": "20260519_163004_04149b86",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        0.358369,
+        2.042944,
+        0.389028
+      ],
+      "support": 30,
+      "hold_out": false,
+      "obb_local": [
+        -0.081318,
+        -0.286422,
+        -0.098909
+      ],
+      "obb_half_extent": [
+        0.243656,
+        0.459955,
+        0.237831
+      ],
+      "obb_max_axis_excess": -0.138922,
+      "obb_hit": true
+    },
+    {
+      "object_key": "bracelet",
+      "object": "手链",
+      "group": "Base",
+      "run_id": "20260520_001018_cb2e562f",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        -1.296172,
+        1.964757,
+        1.557741
+      ],
+      "support": 22,
+      "hold_out": false,
+      "obb_local": [
+        -0.09221,
+        -0.000626,
+        0.001015
+      ],
+      "obb_half_extent": [
+        0.296151,
+        0.290192,
+        0.088945
+      ],
+      "obb_max_axis_excess": -0.08793,
+      "obb_hit": true
+    },
+    {
+      "object_key": "bracelet",
+      "object": "手链",
+      "group": "LoRA",
+      "run_id": "20260519_163546_cb2e562f",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        -1.34055,
+        1.922498,
+        1.566261
+      ],
+      "support": 15,
+      "hold_out": false,
+      "obb_local": [
+        -0.037945,
+        0.004329,
+        0.030317
+      ],
+      "obb_half_extent": [
+        0.296151,
+        0.290192,
+        0.088945
+      ],
+      "obb_max_axis_excess": -0.058628,
+      "obb_hit": true
+    },
+    {
+      "object_key": "hair_clip",
+      "object": "发夹",
+      "group": "Base",
+      "run_id": "20260519_183039_65bf02a5",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        0.615542,
+        1.838889,
+        1.314059
+      ],
+      "support": 22,
+      "hold_out": false,
+      "obb_local": [
+        -0.108265,
+        -0.055859,
+        -0.206432
+      ],
+      "obb_half_extent": [
+        0.144539,
+        0.491184,
+        0.120811
+      ],
+      "obb_max_axis_excess": 0.085621,
+      "obb_hit": false
+    },
+    {
+      "object_key": "hair_clip",
+      "object": "发夹",
+      "group": "LoRA",
+      "run_id": "20260519_164312_65bf02a5",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        0.695108,
+        1.827041,
+        1.285291
+      ],
+      "support": 11,
+      "hold_out": false,
+      "obb_local": [
+        -0.024802,
+        -0.056811,
+        -0.224649
+      ],
+      "obb_half_extent": [
+        0.144539,
+        0.491184,
+        0.120811
+      ],
+      "obb_max_axis_excess": 0.103838,
+      "obb_hit": false
+    },
+    {
+      "object_key": "double_sided_tape",
+      "object": "胶带 hold-out",
+      "group": "Base",
+      "run_id": "20260519_000313_6c883d56",
+      "fused_file": "fused.json",
+      "depth_mode": null,
+      "P_world": [
+        2.390581,
+        0.881386,
+        2.540304
+      ],
+      "support": 15,
+      "hold_out": true,
+      "obb_local": [
+        -0.037843,
+        -0.129982,
+        -0.124414
+      ],
+      "obb_half_extent": [
+        0.358747,
+        0.074455,
+        0.348846
+      ],
+      "obb_max_axis_excess": 0.055527,
+      "obb_hit": false
+    },
+    {
+      "object_key": "double_sided_tape",
+      "object": "胶带 hold-out",
+      "group": "LoRA",
+      "run_id": "20260519_132142_6c883d56",
+      "fused_file": "fused_ray.json",
+      "depth_mode": "ray",
+      "P_world": [
+        2.375005,
+        0.929649,
+        2.776736
+      ],
+      "support": 3,
+      "hold_out": true,
+      "obb_local": [
+        -0.06158,
+        0.056083,
+        0.02819
+      ],
+      "obb_half_extent": [
+        0.358747,
+        0.074455,
+        0.348846
+      ],
+      "obb_max_axis_excess": -0.018372,
+      "obb_hit": true
+    }
+  ],
+  "bbox": "docs/bbox_data2.json",
+  "margin_m": 0.0,
+  "fused_by_group": {
+    "Base": "fused.json",
+    "LoRA": "fused_ray.json"
+  }
+}

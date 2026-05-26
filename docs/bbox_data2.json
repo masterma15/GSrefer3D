@@ -1,0 +1,261 @@
+{
+  "scene": "data2",
+  "coord_frame": "3dgs_world_same_as_fused_json",
+  "ply_ref": "3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply",
+  "margin_default_m": 0.015,
+  "objects": {
+    "electric_shaver": {
+      "label": "shaver_seg",
+      "prompt_object": "electric shaver on the desk",
+      "segment_points": 6875,
+      "primary_eval": "obb",
+      "obb": {
+        "center": [-0.76037419, 1.21963465, 2.29146385],
+        "width": [0.50170422, 0.56857109, 1.37542343],
+        "half_extent": [0.25085211, 0.28428555, 0.68771172],
+        "rotation_columns": [
+          [0.4771294, -0.76143879, -0.43881491],
+          [0.55593777, 0.64822251, -0.52032761],
+          [0.68064731, 0.00430983, 0.7325986]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "aabb_legacy": {
+        "bbox_raw_min": [-1.11515, 0.873397, 1.7065],
+        "bbox_raw_max": [-0.310379, 1.72939, 2.9038],
+        "bbox_min": [-1.13015, 0.858397, 1.6915],
+        "bbox_max": [-0.295379, 1.74439, 2.9188],
+        "margin_m": 0.015,
+        "screenshot": "docs/bbox_labels/shaver_seg_cloudcompare.png",
+        "notes": "Superseded by obb; kept for reference only."
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/electric_shaver_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/electric_shaver_obb_edit_dialog.png",
+      "notes": "OBB fitted around shaver_seg only (tighter than legacy AABB)."
+    },
+    "brown_rabbit": {
+      "label": "rabbit_seg",
+      "prompt_object": "brown plush rabbit",
+      "segment_points": 108535,
+      "primary_eval": "obb",
+      "obb": {
+        "center": [0.25632942, 0.50239885, 2.06993961],
+        "width": [1.27815461, 1.775141, 1.7356472],
+        "half_extent": [0.63907731, 0.8875705, 0.8678236],
+        "rotation_columns": [
+          [0.7827006, 0.08476884, -0.61660336],
+          [-0.44630641, 0.76694661, -0.46109339],
+          [0.43381467, 0.63608915, 0.63812245]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "aabb_legacy": {
+        "bbox_raw_min": [-0.369768, -0.426302, 1.45214],
+        "bbox_raw_max": [1.04391, 1.46181, 3.13078],
+        "bbox_min": [-0.389768, -0.446302, 1.43214],
+        "bbox_max": [1.06391, 1.48181, 3.15078],
+        "margin_m": 0.02,
+        "screenshot": "docs/bbox_labels/rabbit_seg_cloudcompare.png",
+        "screenshot_properties": "docs/bbox_labels/rabbit_seg_properties.png",
+        "notes": "Superseded by obb; kept for reference only."
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/brown_rabbit_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/brown_rabbit_obb_edit_dialog.png",
+      "notes": "OBB around rabbit_seg only (dog/cake excluded). toy_cake is a separate object (data2_toy_cake)."
+    },
+    "golden_retriever": {
+      "label": "dog_seg",
+      "prompt_object": "light yellow plush golden retriever toy",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [0.00106919, 1.37227321, 1.08019304],
+        "width": [2.11226439, 1.78217936, 1.20830035],
+        "half_extent": [1.0561322, 0.89108968, 0.60415018],
+        "rotation_columns": [
+          [0.73525345, 0.12073412, -0.66695251],
+          [-0.46523628, 0.80549181, -0.36706699],
+          [0.49290726, 0.58017778, 0.64841053]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-24"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/golden_retriever_seg_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/golden_retriever_obb_edit_dialog.png",
+      "notes": "OBB fitted around dog_seg only (rabbit excluded). Hit test: |R^T(p-c)| <= half_extent per axis. No separate AABB Properties entry."
+    },
+    "bracelet": {
+      "label": "bracelet_seg",
+      "prompt_object": "white beaded bracelet on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [-1.36605561, 1.93031526, 1.60707808],
+        "width": [0.59230185, 0.58038485, 0.1778903],
+        "half_extent": [0.29615093, 0.29019243, 0.08894515],
+        "rotation_columns": [
+          [-0.75350308, -0.65740311, -0.00792585],
+          [-0.38544121, 0.45148572, -0.80474016],
+          [0.53261381, -0.60331297, -0.59358613]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/bracelet_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/bracelet_obb_edit_dialog.png",
+      "notes": "Small flat object (bracelet); thin Z extent (~0.18 m width)."
+    },
+    "cookie_bag": {
+      "label": "cookie_seg",
+      "prompt_object": "green square cookie package on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [-1.44862342, 1.97692347, 1.68562961],
+        "width": [0.54861689, 0.19280803, 0.8388716],
+        "half_extent": [0.27430845, 0.09640402, 0.4194358],
+        "rotation_columns": [
+          [0.92352641, -0.06645677, 0.37773341],
+          [0.29176503, 0.76098889, -0.57945584],
+          [-0.24894217, 0.64535213, 0.7221831]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/cookie_bag_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/cookie_bag_obb_edit_dialog.png",
+      "notes": "Green square cookie package (饼干袋)."
+    },
+    "toy_cake": {
+      "label": "cake_seg",
+      "prompt_object": "toy cake held by the brown plush rabbit",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [0.0672729, 0.71209574, 1.91198564],
+        "width": [0.69865662, 0.89422804, 0.77999449],
+        "half_extent": [0.34932831, 0.44711402, 0.38999725],
+        "rotation_columns": [
+          [0.74762213, -0.04652199, -0.66249292],
+          [-0.4060536, 0.7573483, -0.51141377],
+          [0.52552986, 0.65135187, 0.54731993]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/toy_cake_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/toy_cake_obb_edit_dialog.png",
+      "notes": "Toy cake on rabbit; separate from brown_rabbit OBB."
+    },
+    "umbrella": {
+      "label": "umbrella_seg",
+      "prompt_object": "black and red folded umbrella on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [-0.12415826, 2.98448086, -0.05661608],
+        "width": [2.49144459, 0.58540821, 0.96065688],
+        "half_extent": [1.2457223, 0.29270411, 0.48032844],
+        "rotation_columns": [
+          [0.93524855, 0.05752145, 0.34927793],
+          [0.18307081, 0.76590633, -0.61632694],
+          [-0.30296907, 0.64036423, 0.70578229]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/umbrella_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/umbrella_obb_edit_dialog.png",
+      "notes": "Folded umbrella; elongated X extent."
+    },
+    "medicine_bottle": {
+      "label": "medicine_bottle_seg",
+      "prompt_object": "medicine bottle on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [0.43968621, 2.20646715, 0.6441381],
+        "width": [0.4873125, 0.91991043, 0.47566128],
+        "half_extent": [0.24365625, 0.45995522, 0.23783064],
+        "rotation_columns": [
+          [1.0, 0.0, 0.0],
+          [0.0, 0.78489095, -0.61963415],
+          [0.0, 0.61963415, 0.78489095]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/medicine_bottle_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/medicine_bottle_obb_edit_dialog.png",
+      "notes": "Medicine bottle (upright small object)."
+    },
+    "golden_bowl": {
+      "label": "bowl_seg",
+      "prompt_object": "gold-colored bowl on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [2.04095578, 1.61438382, 1.56151628],
+        "width": [0.86807632, 0.86292529, 0.43821836],
+        "half_extent": [0.43403816, 0.43146265, 0.21910918],
+        "rotation_columns": [
+          [0.99861616, 0.04237993, 0.03112901],
+          [-0.05059297, 0.61300856, 0.78845756],
+          [0.01433243, -0.78894192, 0.61430438]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/golden_bowl_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/golden_bowl_obb_edit_dialog.png",
+      "notes": "Gold-colored bowl on desk."
+    },
+    "hair_clip": {
+      "label": "hair_clip_seg",
+      "prompt_object": "purple hair clip on the desk",
+      "primary_eval": "obb",
+      "obb": {
+        "center": [0.73674858, 2.03191185, 1.38826668],
+        "width": [0.28907704, 0.98236847, 0.24162149],
+        "half_extent": [0.14453852, 0.49118424, 0.12081075],
+        "rotation_columns": [
+          [0.97773242, -0.17160589, 0.12080848],
+          [0.02694899, 0.67354679, 0.73865239],
+          [-0.2081271, -0.71894574, 0.66317314]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/hair_clip_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/hair_clip_obb_edit_dialog.png",
+      "notes": "Purple hair clip (small flat object)."
+    },
+    "double_sided_tape": {
+      "label": "tape_seg",
+      "prompt_object": "roll of clear double-sided adhesive tape on the desk",
+      "hold_out": true,
+      "primary_eval": "obb",
+      "obb": {
+        "center": [2.4340992, 0.90208554, 2.71774173],
+        "width": [0.71749353, 0.14891064, 0.69769287],
+        "half_extent": [0.35874677, 0.07445532, 0.34884644],
+        "rotation_columns": [
+          [0.99908787, 0.04268218, 0.00129888],
+          [-0.03224229, 0.77396023, -0.63241284],
+          [-0.02799804, 0.6317941, 0.77463045]
+        ],
+        "source": "CloudCompare Cross Section → advanced → Edit clipping box",
+        "labeled_date": "2026-05-26"
+      },
+      "labeled_in": "CloudCompare v2.14.beta",
+      "screenshot": "docs/bbox_labels/double_sided_tape_obb_cloudcompare.png",
+      "screenshot_obb_dialog": "docs/bbox_labels/double_sided_tape_obb_edit_dialog.png",
+      "notes": "Hold-out object (not in data2 SFT training set). Thin Y extent (~0.15 m)."
+    }
+  }
+}

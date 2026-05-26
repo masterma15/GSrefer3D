@@ -36,6 +36,41 @@ Same referring pixel and camera; only the **initial depth source** for z₀ chan
 
 **15/20** groups: 3DGS &lt; DAV2 affine. Raw numbers: [`depth_compare_batch.json`](docs/depth_compare_batch.json). Regenerate figure: `python bridge/plot_depth_ablation_teaser.py` (requires `matplotlib`).
 
+### 3D OBB hit rate (manual CloudCompare OBB · data2 · 11 objects)
+
+Hand-labeled **oriented bounding boxes** in CloudCompare (Cross Section → **Edit clipping box**) on `point_cloud.ply`, stored in [`docs/bbox_data2.json`](docs/bbox_data2.json). Metric: fused **`P_world`** inside OBB (0 margin). **Base** = `fused.json` (legacy invdepth + snap); **LoRA** = `fused_ray.json` (ray depth pull-in, same 2D predictions).
+
+| Object | Base hit | LoRA hit | Base outside (m) | LoRA outside (m) |
+|--------|:--------:|:--------:|------------------:|------------------:|
+| Electric shaver | ✓ | ✓ | 0.000 | 0.000 |
+| Brown rabbit | ✓ | ✓ | 0.000 | 0.000 |
+| Golden retriever | ✓ | ✓ | 0.000 | 0.000 |
+| Umbrella | ✓ | ✓ | 0.000 | 0.000 |
+| Toy cake | ✓ | ✓ | 0.000 | 0.000 |
+| Medicine bottle | ✓ | ✓ | 0.000 | 0.000 |
+| Bracelet | ✓ | ✓ | 0.000 | 0.000 |
+| Cookie bag | ✗ | **✓** | 0.006 | 0.000 |
+| Golden bowl | ✗ | **✓** | 0.126 | 0.000 |
+| Double-sided tape (hold-out) | ✗ | **✓** | 0.056 | 0.000 |
+| Hair clip | ✗ | ✗ | 0.086 | 0.104 |
+
+**Hit rate:** Base **63.6%** (7/11) · LoRA **90.9%** (10/11). JSON: [`results_3d_obb_hit.json`](docs/results_3d_obb_hit.json) · [`results_3d_obb_offset.json`](docs/results_3d_obb_offset.json).
+
+```powershell
+python bridge/eval_3d_obb_offset.py --refuse-lora-ray
+python bridge/inject_obb_compare.py --all-presets
+Set-Location 3DGS/gaussian-splatting/viewers/bin
+.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration obb_tape
+```
+
+**SIBR (injected Gaussians):** cyan = OBB wireframe · blue = Base · magenta = LoRA (`inject_obb_compare.py`).
+
+![OBB eval — LoRA in-box vs out-of-box (ray depth)](demo/teaser_obb_lora_in_out.png)
+
+![OBB outside offset — Base vs LoRA](demo/teaser_obb_miss_offset.png)
+
+**Manual OBB labeling (CloudCompare)** — segment object points, then **Edit clipping box**; copy center / dimensions / rotation into JSON (see per-object `screenshot` paths in `bbox_data2.json` → `docs/bbox_labels/` when saved locally).
+
 ### In-domain 2D vs synthetic GT (data2 · 10 objects)
 
 LoRA (**merged data2**) **median L2 ≤ Base on all 10/10** training objects (normalized coords, same render + fuse).
@@ -115,8 +150,10 @@ Offline pipeline for **469** RGB-D Location samples (**10** categories): fused *
 | [`demo/teaser_depth_ablation.png`](demo/teaser_depth_ablation.png) | **Yes** | Depth ablation bar chart (README) |
 | [`demo/teaser_3d_electric_shaver.gif`](demo/teaser_3d_electric_shaver.gif) | **Yes** | SIBR 3D anchor — electric shaver (1718×958, ~58 MB) |
 | [`demo/teaser_3d_brown_rabbit.gif`](demo/teaser_3d_brown_rabbit.gif) | **Yes** | SIBR 3D anchor — brown rabbit (1718×958, ~36 MB) |
+| [`demo/teaser_obb_lora_in_out.png`](demo/) | **Yes** | OBB in-box vs out-of-box (LoRA ray; README) |
+| [`demo/teaser_obb_miss_offset.png`](demo/) | **Yes** | OBB outside-offset bar chart (README) |
 | [`demo/teaser_3d_*.gif.orig`](demo/) | **Yes** | Explicit backup copies of the SIBR GIFs |
-| `docs/` (public) | **4 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), depth/2D eval JSON (other notes stay local) |
+| `docs/` (public) | **8 files** | Setup, [`RESULTS.md`](docs/RESULTS.md), 2D/3D eval JSON, [`bbox_data2.json`](docs/bbox_data2.json), optional `bbox_labels/` screenshots |
 | [`patches/`](patches/) | **Yes** | Small upstream diffs + integration notes |
 | [`3DGS/render.py`](3DGS/render.py) | **Yes** | `--custom_views` RGB + `depth_raw` + cameras |
 | [`3DGS/environment-envGS.yml`](3DGS/environment-envGS.yml) | **Yes** | Conda env hint |
@@ -177,4 +214,7 @@ If you use this integration, cite the upstream 3DGS and RoboRefer papers. This r
 | [docs/UPSTREAM_SETUP.md](docs/UPSTREAM_SETUP.md) | Clone upstream & download weights |
 | [docs/RESULTS.md](docs/RESULTS.md) | Full experiment tables (English) |
 | [docs/results_2d_eval.json](docs/results_2d_eval.json) | Per-object Base/LoRA 2D L2 vs GT |
+| [docs/bbox_data2.json](docs/bbox_data2.json) | Manual OBB annotations (data2 · 11 objects) |
+| [docs/results_3d_obb_hit.json](docs/results_3d_obb_hit.json) | 3D OBB hit rate (Base `fused.json` vs LoRA `fused_ray.json`) |
+| [docs/results_3d_obb_offset.json](docs/results_3d_obb_offset.json) | OBB outside offset + Base/LoRA comparison |
 | [docs/depth_compare_batch.json](docs/depth_compare_batch.json) | Depth ablation (20 groups) |
