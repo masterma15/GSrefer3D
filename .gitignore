@@ -29,6 +29,7 @@ docs/*
 !docs/results_3d_obb_offset.json
 !docs/bbox_labels/
 !docs/bbox_labels/**
+docs/bbox_labels/*.bin
 docs/mil_cv_assets/
 docs/mil_cv_selected/
 
