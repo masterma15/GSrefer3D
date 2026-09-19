@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Unproject (nx, ny) with depth_raw/view_XXX.npy + camera_params JSON,
-then report Euclidean distance to the nearest Gaussian in point_cloud.ply.
+用 depth_raw/view_XXX.npy + camera_params JSON 对 (nx, ny) 做反投影，
+再报告到 point_cloud.ply 中最近高斯的欧氏距离。
 
-Run from repo root inside the gaussian_splatting conda env (needs plyfile; scipy optional for speed).
+在仓库根目录、gaussian_splatting conda 环境中运行（需要 plyfile；scipy 可选以加速）。
 
-Example:
+示例：
   python bridge/verify_unproject_vs_pointcloud.py \\
     --camera gaussian-splatting/gaussian-splatting/test1/camera_params/view_000.json \\
     --depth-npy gaussian-splatting/gaussian-splatting/test1/depth_raw/view_000.npy \\

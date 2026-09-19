@@ -1,4 +1,4 @@
-"""Grounding DINO + SAM2 mask generation for training data."""
+"""用 Grounding DINO + SAM2 为训练数据生成 mask。"""
 from __future__ import annotations
 
 import math
@@ -16,24 +16,24 @@ class GroundingSamConfig:
     text_threshold: float = 0.12
     anchor_box_radius: int = 64
     min_mask_ratio: float = 0.001
-    # Box selection: weighted DINO confidence + proximity (no absolute smallest-box rule)
+    # 选框：DINO 置信度与邻近度加权（不用绝对最小框规则）
     max_box_area_ratio: float = 0.35
-    max_point_box_dist: float = -1.0  # px; <0 => 0.15 * image diagonal
-    min_box_area_ratio: float = 0.003  # drop tiny fragment boxes (part/neighbor clutter)
+    max_point_box_dist: float = -1.0  # 像素；<0 则取 0.15 * 图像对角线
+    min_box_area_ratio: float = 0.003  # 丢掉过小的碎片框（部件/邻物杂波）
     dino_score_weight: float = 0.50
     near_score_weight: float = 0.40
-    near_dist_sigma: float = 50.0  # exp(-pt_dist/sigma): smooth nearness, not lexicographic
-    contain_bonus: float = 0.06  # mild boost when anchor lies inside box
-    area_penalty: float = 0.12  # mild global area prior
-    compact_box_weight: float = 0.28  # bonus when box area <= median among candidates
-    large_box_penalty: float = 0.38  # penalty when box area >> median (DINO likes big boxes)
-    tiny_box_penalty: float = 0.40  # extra score penalty for area_ratio below min_box_area_ratio
-    prefer_containing_point: bool = False  # legacy lexicographic mode (off)
-    # SAM: box-only by default (3D anchor may sit on background at object edge)
+    near_dist_sigma: float = 50.0  # exp(-pt_dist/sigma)：平滑邻近度，非字典序
+    contain_bonus: float = 0.06  # 锚点落在框内时轻微加分
+    area_penalty: float = 0.12  # 轻微的全局面积先验
+    compact_box_weight: float = 0.28  # 框面积 <= 候选中位数时加分
+    large_box_penalty: float = 0.38  # 框面积远大于中位数时惩罚（DINO 偏好大框）
+    tiny_box_penalty: float = 0.40  # area_ratio 低于 min_box_area_ratio 时额外扣分
+    prefer_containing_point: bool = False  # 旧版字典序模式（关闭）
+    # SAM：默认只用框（3D 锚点可能落在物体边缘的背景上）
     use_sam_point_prompt: bool = False
-    min_box_mask_iou: float = 0.12  # reject SAM mask that ignores the DINO box
-    fallback_point_sam: bool = True  # only when DINO returns zero boxes
-    fallback_point_sam_if_box_miss: bool = False  # do not replace box mask when point off object
+    min_box_mask_iou: float = 0.12  # 拒绝无视 DINO 框的 SAM mask
+    fallback_point_sam: bool = True  # 仅当 DINO 一个框都没返回时
+    fallback_point_sam_if_box_miss: bool = False  # 点不在物体上时不要用点 mask 替换框 mask
 
 
 def load_grounding_dino(config_path: str, checkpoint_path: str, device: str = "cuda"):
@@ -118,7 +118,7 @@ def _box_contains_point(box: np.ndarray, u: float, v: float) -> bool:
 
 
 def _point_to_box_distance(u: float, v: float, box: np.ndarray) -> float:
-    """0 if (u,v) inside box; else Euclidean distance to rectangle edge."""
+    """若 (u,v) 在框内则为 0；否则为到矩形边的欧氏距离。"""
     x1, y1, x2, y2 = float(box[0]), float(box[1]), float(box[2]), float(box[3])
     if x1 > x2:
         x1, x2 = x2, x1
@@ -157,7 +157,7 @@ def _composite_box_score(
     compact = 0.0
     med = max(median_area_ratio, 1e-9)
     if area_ratio > med:
-        # DINO often scores large boxes higher; down-weight oversized detections
+        # DINO 常给大框更高分；对过大检测降权
         dino_eff = dino * min(1.0, math.sqrt(med / area_ratio))
         compact = -cfg.large_box_penalty * min(2.5, area_ratio / med - 1.0)
     else:
@@ -176,7 +176,7 @@ def _composite_box_score(
 
 
 def _mask_box_iou(mask: np.ndarray, box: np.ndarray) -> float:
-    """IoU between binary mask and axis-aligned DINO box."""
+    """二值 mask 与轴对齐 DINO 框的 IoU。"""
     x1 = int(max(0, math.floor(box[0])))
     y1 = int(max(0, math.floor(box[1])))
     x2 = int(min(mask.shape[1], math.ceil(box[2])))
@@ -199,10 +199,10 @@ def _rank_boxes(
     h: int,
     cfg: GroundingSamConfig,
 ) -> list[tuple[int, float, bool, float, float]]:
-    """Return (index, select_score, contains_point, area, point_to_box_dist) best-first.
+    """返回 (index, select_score, contains_point, area, point_to_box_dist)，最优在前。
 
-    Weighted score = w_dino*DINO + w_near*exp(-dist/sigma) - mild area - tiny fragment penalty.
-    Hard filters: too far, too large, optional drop of sub-min area (keep if only those remain).
+    加权分 = w_dino*DINO + w_near*exp(-dist/sigma) - 轻微面积项 - 碎片框惩罚。
+    硬过滤：过远、过大；可选丢掉低于最小面积的框（若只剩这些则保留）。
     """
     max_dist = _max_point_box_dist_px(w, h, cfg)
     pool: list[tuple[int, float, bool, float, float, float]] = []
@@ -322,7 +322,7 @@ def grounding_sam_mask(
     cfg: GroundingSamConfig,
     device: str = "cuda",
 ) -> tuple[np.ndarray | None, dict[str, Any]]:
-    """Return binary mask (H,W) or None, plus debug meta."""
+    """返回二值 mask (H,W) 或 None，以及调试用 meta。"""
     meta: dict[str, Any] = {"mode": "grounding"}
 
     boxes, scores = _predict_boxes(gdino_model, image_rgb, caption, cfg, device)

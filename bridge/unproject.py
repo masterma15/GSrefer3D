@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""Unproject 2D pixel locations into the 3DGS scene's world frame.
+"""把二维像素反投影到 3DGS 场景的世界坐标系。
 
-The convention follows what render.py writes to camera_params/view_XXX.json:
-- ``rotation`` is the COLMAP world->camera rotation R_w2c (== view.R in scene/cameras.py).
-- ``position`` is the world-space camera center C (== view.camera_center).
-- ``fov_x`` / ``fov_y`` are radians; intrinsics are derived assuming a centered
-  principal point at (W/2, H/2) and square pixels.
+约定与 render.py 写入 camera_params/view_XXX.json 的字段一致：
+- ``rotation``：JSON 里实际是 3DGS 的 R_c2w（camera-to-world）；``from_json`` 会转置成 R_w2c。
+- ``position``：世界系相机中心 C（== view.camera_center）。
+- ``fov_x`` / ``fov_y``：弧度；内参按主点在 (W/2, H/2)、方形像素推导。
 
-For a 3DGS depth raster saved by the updated render.py
-(``depth_raw/view_XXX.npy``, kind="expected_invdepth"), unprojection uses
-``z_cam = 1 / max(inv, eps)``. This matches what we validated end-to-end on
-view_000 (nx=0.458, ny=0.298) -> P_world close to a Gaussian (NN dist 0.25 in
-a scene with diagonal ~189).
+更新后的 render.py 保存的深度栅格（``depth_raw/view_XXX.npy``，
+kind="expected_invdepth"）用 ``z_cam = 1 / max(inv, eps)``。
+与 view_000（nx=0.458, ny=0.298）端到端验证一致：P_world 落在高斯附近
+（场景对角约 189 时 NN 距离约 0.25）。
 
-CLI compatibility: running this module as a script preserves the old
-``minimal_unproject.py`` behaviour (single-pixel printout) so existing notes
-and the verify_unproject_vs_pointcloud.py loader keep working.
+作为脚本运行时保持旧 ``minimal_unproject.py`` 的单像素打印行为，
+方便已有笔记和 verify_unproject_vs_pointcloud.py 继续加载。
 """
 from __future__ import annotations
 
@@ -31,7 +28,7 @@ import numpy as np
 
 @dataclass(frozen=True)
 class CameraView:
-    """Subset of the per-view JSON needed for pinhole unprojection."""
+    """针孔反投影所需的单视角 JSON 字段子集。"""
 
     width: int
     height: int
@@ -44,8 +41,7 @@ class CameraView:
     def from_json(cls, path: str | Path) -> "CameraView":
         with Path(path).open("r", encoding="utf-8") as f:
             d = json.load(f)
-        # render.py saves view.R which is R_c2w (camera-to-world) in 3DGS convention.
-        # Unprojection needs R_w2c, so we transpose.
+        # render.py 保存的 view.R 是 3DGS 约定下的 R_c2w（相机到世界），反投影需要 R_w2c，故转置。
         R_c2w = np.asarray(d["rotation"], dtype=np.float64)
         return cls(
             width=int(d["width"]),
@@ -66,13 +62,13 @@ class CameraView:
 
 
 class Unprojector:
-    """Pixel + depth -> world point under the 3DGS render.py convention."""
+    """按 3DGS render.py 约定，由像素 + 深度得到世界点。"""
 
     def __init__(self, view: CameraView, *, inv_eps: float = 1e-6) -> None:
         self.view = view
         self.inv_eps = inv_eps
 
-    # --- depth helpers -----------------------------------------------------
+    # --- 深度辅助 ----------------------------------------------------------
 
     def z_from_invdepth(self, inv: float) -> float:
         return 1.0 / max(float(inv), self.inv_eps)
@@ -85,10 +81,10 @@ class Unprojector:
         *,
         kind: str = "expected_invdepth",
     ) -> tuple[float, float]:
-        """Return ``(stored_value, z_cam)``.
+        """返回 ``(栅格存值, z_cam)``。
 
-        ``kind="expected_invdepth"`` matches what render.py saves; pass
-        ``kind="linear_z"`` if a future renderer writes camera-space z directly.
+        ``kind="expected_invdepth"`` 与 render.py 写出的一致；若将来渲染器
+        直接写相机系 z，则传 ``kind="linear_z"``。
         """
         arr = np.load(depth_raw_npy)
         if arr.ndim != 2:
@@ -100,7 +96,7 @@ class Unprojector:
             return val, val
         raise ValueError(f"unknown depth kind: {kind!r}")
 
-    # --- core unprojection -------------------------------------------------
+    # --- 核心反投影 --------------------------------------------------------
 
     def normalized_to_pixel(self, nx: float, ny: float) -> tuple[int, int]:
         w, h = self.view.width, self.view.height
@@ -123,8 +119,7 @@ class Unprojector:
         z_cam: float,
     ) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
         u, v = self.normalized_to_pixel(nx, ny)
-        # Use sub-pixel floats (nx*W, ny*H) for projection; rounded (u,v) only
-        # for indexing into rasters by the caller.
+        # 投影用亚像素浮点 (nx*W, ny*H)；取整后的 (u,v) 只给调用方索引栅格。
         fu = nx * self.view.width
         fv = ny * self.view.height
         p_cam, p_world = self.pixel_to_world(fu, fv, z_cam)
@@ -152,12 +147,12 @@ class Unprojector:
 
 
 # ---------------------------------------------------------------------------
-# Backwards-compatible loaders / CLI for verify_unproject_vs_pointcloud.py
+# 兼容旧加载器 / CLI（verify_unproject_vs_pointcloud.py）
 # ---------------------------------------------------------------------------
 
 
 def load_camera(path: str | Path) -> dict:
-    """Old-style loader kept so verify_unproject_vs_pointcloud.py keeps working."""
+    """旧式加载器，供 verify_unproject_vs_pointcloud.py 继续使用。"""
     with Path(path).open("r", encoding="utf-8") as f:
         return json.load(f)
 

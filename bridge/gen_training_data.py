@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate Location-task training data (project -> filter -> mask -> refine).
+"""生成 Location 任务训练数据（project -> filter -> mask -> refine）。
 
-See module stages in ``main()`` choices: project, mask, refine.
-Mask reads ``projections_kept.json`` when present. Default mask mode: Grounding DINO + SAM2.
-Refine snaps answers to mask geometry.
+各阶段见 ``main()`` 的 choices：project、mask、refine。
+若存在 ``projections_kept.json``，mask 阶段会读取它。默认 mask 模式：Grounding DINO + SAM2。
+refine 把答案贴到 mask 几何上。
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Projection helpers
+# 投影辅助函数
 # ---------------------------------------------------------------------------
 
 def _intrinsics(d: dict) -> tuple[float, float, float, float]:
@@ -29,7 +29,7 @@ def _intrinsics(d: dict) -> tuple[float, float, float, float]:
 
 
 def world_to_image(p_world: np.ndarray, cam: dict) -> tuple[float, float, float]:
-    """Return (u, v, z_cam). z_cam <= 0 means behind camera."""
+    """返回 (u, v, z_cam)。z_cam <= 0 表示在相机后方。"""
     R_c2w = np.asarray(cam["rotation"], dtype=np.float64)
     C = np.asarray(cam["position"], dtype=np.float64)
     p_cam = R_c2w.T @ (p_world - C)
@@ -45,7 +45,7 @@ def in_frame(u: float, v: float, w: int, h: int, margin: int = 10) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: project
+# 阶段 1：project
 # ---------------------------------------------------------------------------
 
 def stage_project(args: argparse.Namespace) -> None:
@@ -85,11 +85,11 @@ def stage_project(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: mask  (run in WSL roborefer env)
+# 阶段 2：mask（在 WSL roborefer 环境中运行）
 # ---------------------------------------------------------------------------
 
 def _resolve_rgb_path(path: str) -> Path:
-    """Resolve rgb_path; map Windows E:\\... to WSL /mnt/e/... when needed."""
+    """解析 rgb_path；必要时把 Windows 的 E:\\... 映射到 WSL 的 /mnt/e/...。"""
     p = Path(path)
     if p.is_file():
         return p
@@ -145,53 +145,43 @@ def stage_mask(args: argparse.Namespace) -> None:
     import torch
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    mode = args.mask_mode
 
-    gs_cfg = None
-    gdino_model = None
-    predictor = None
+    (
+        GroundingSamConfig,
+        grounding_sam_mask,
+        load_grounding_dino,
+        load_sam2_predictor,
+        _segment_point,
+    ) = _import_mask_grounding()
+    gs_cfg = GroundingSamConfig(
+        box_threshold=args.grounding_box_threshold,
+        text_threshold=args.grounding_text_threshold,
+        anchor_box_radius=args.anchor_box_radius,
+        min_mask_ratio=args.min_mask_ratio,
+        max_box_area_ratio=args.max_box_area_ratio,
+        max_point_box_dist=args.max_point_box_dist,
+        min_box_area_ratio=args.min_box_area_ratio,
+        dino_score_weight=args.dino_score_weight,
+        near_score_weight=args.near_score_weight,
+        near_dist_sigma=args.near_dist_sigma,
+        contain_bonus=args.contain_bonus,
+        area_penalty=args.area_penalty,
+        tiny_box_penalty=args.tiny_box_penalty,
+        compact_box_weight=args.compact_box_weight,
+        large_box_penalty=args.large_box_penalty,
+        prefer_containing_point=args.prefer_containing_point,
+        use_sam_point_prompt=args.sam_point_prompt,
+        min_box_mask_iou=args.min_box_mask_iou,
+        fallback_point_sam=not args.no_fallback_point_sam,
+        fallback_point_sam_if_box_miss=args.fallback_point_sam_if_box_miss,
+    )
+    gdino_model = load_grounding_dino(
+        args.grounding_config, args.grounding_checkpoint, device=device
+    )
+    predictor = load_sam2_predictor(args.sam2_checkpoint, args.sam2_config)
+    print(f"[mask] mode=grounding caption={args.object!r} device={device}")
 
-    if mode == "grounding":
-        (
-            GroundingSamConfig,
-            grounding_sam_mask,
-            load_grounding_dino,
-            load_sam2_predictor,
-            _segment_point,
-        ) = _import_mask_grounding()
-        gs_cfg = GroundingSamConfig(
-            box_threshold=args.grounding_box_threshold,
-            text_threshold=args.grounding_text_threshold,
-            anchor_box_radius=args.anchor_box_radius,
-            min_mask_ratio=args.min_mask_ratio,
-            max_box_area_ratio=args.max_box_area_ratio,
-            max_point_box_dist=args.max_point_box_dist,
-            min_box_area_ratio=args.min_box_area_ratio,
-            dino_score_weight=args.dino_score_weight,
-            near_score_weight=args.near_score_weight,
-            near_dist_sigma=args.near_dist_sigma,
-            contain_bonus=args.contain_bonus,
-            area_penalty=args.area_penalty,
-            tiny_box_penalty=args.tiny_box_penalty,
-            compact_box_weight=args.compact_box_weight,
-            large_box_penalty=args.large_box_penalty,
-            prefer_containing_point=args.prefer_containing_point,
-            use_sam_point_prompt=args.sam_point_prompt,
-            min_box_mask_iou=args.min_box_mask_iou,
-            fallback_point_sam=not args.no_fallback_point_sam,
-            fallback_point_sam_if_box_miss=args.fallback_point_sam_if_box_miss,
-        )
-        gdino_model = load_grounding_dino(
-            args.grounding_config, args.grounding_checkpoint, device=device
-        )
-        predictor = load_sam2_predictor(args.sam2_checkpoint, args.sam2_config)
-        print(f"[mask] mode=grounding caption={args.object!r} device={device}")
-    else:
-        _, _, _, load_sam2_predictor, segment_point = _import_mask_grounding()
-        predictor = load_sam2_predictor(args.sam2_checkpoint, args.sam2_config)
-        print(f"[mask] mode=point device={device}")
-
-    # Match RefSpatial-Expand-Bench / use_api.py / export_spatial_train.DEFAULT_SUFFIX
+    # 与 RefSpatial-Expand-Bench / use_api.py / export_spatial_train.DEFAULT_SUFFIX 对齐
     suffix = (
         "Your answer should be formatted as a list of tuples, i.e. [(x1, y1)], "
         "where each tuple contains the x and y coordinates of a point satisfying the conditions above. "
@@ -213,32 +203,24 @@ def stage_mask(args: argparse.Namespace) -> None:
         u, v = float(rec["u"]), float(rec["v"])
         meta = {}
 
-        if mode == "grounding":
-            mask_bool, meta = grounding_sam_mask(
-                img_np,
-                u,
-                v,
-                args.object,
-                w,
-                h,
-                gdino_model,
-                predictor,
-                gs_cfg,
-                device=device,
-            )
-            if mask_bool is None:
-                reason = meta.get("reason", "grounding_failed")
-                print(f"[skip] view_{view_id}: {reason}")
-                skips.append({"view_id": view_id, "reason": reason, **meta})
-                continue
-            mask = mask_bool.astype(np.uint8) * 255
-        else:
-            mask_bool, _sam_score = segment_point(predictor, img_np, u, v)
-            if mask_bool.sum() / (w * h) < args.min_mask_ratio:
-                print(f"[skip] view_{view_id}: mask too small")
-                skips.append({"view_id": view_id, "reason": "mask_too_small"})
-                continue
-            mask = mask_bool.astype(np.uint8) * 255
+        mask_bool, meta = grounding_sam_mask(
+            img_np,
+            u,
+            v,
+            args.object,
+            w,
+            h,
+            gdino_model,
+            predictor,
+            gs_cfg,
+            device=device,
+        )
+        if mask_bool is None:
+            reason = meta.get("reason", "grounding_failed")
+            print(f"[skip] view_{view_id}: {reason}")
+            skips.append({"view_id": view_id, "reason": reason, **meta})
+            continue
+        mask = mask_bool.astype(np.uint8) * 255
 
         mask_fname = f"view_{view_id}.png"
         Image.fromarray(mask, mode="L").save(mask_dir / mask_fname)
@@ -259,7 +241,7 @@ def stage_mask(args: argparse.Namespace) -> None:
             "category": "object",
             "step": 1,
             "scene": args.scene,
-            "mask_mode": mode,
+            "mask_mode": "grounding",
         }
         if meta:
             entry["mask_meta"] = meta
@@ -276,7 +258,7 @@ def stage_mask(args: argparse.Namespace) -> None:
 
 
 def stage_refine(args: argparse.Namespace) -> None:
-    """Move answer to mask centroid (fallback: nearest in-mask pixel to prompt point)."""
+    """把答案移到 mask 质心（回退：距提示点最近的 mask 内像素）。"""
     from PIL import Image
 
     out_dir = Path(args.out)
@@ -324,24 +306,18 @@ def stage_refine(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# 命令行入口
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", required=True, choices=["project", "mask", "refine"])
-    # project args
+    # project 参数
     ap.add_argument("--fused", help="fused.json path")
     ap.add_argument("--views-root", help="dir with rgb/ and camera_params/")
-    # mask args
+    # mask 参数
     ap.add_argument("--prompt", help="RoboRefer prompt string")
     ap.add_argument("--object", help="short object description")
-    ap.add_argument(
-        "--mask-mode",
-        choices=("grounding", "point"),
-        default="grounding",
-        help="grounding: DINO box + SAM2; point: legacy single-point SAM2",
-    )
     ap.add_argument("--sam2-checkpoint")
     ap.add_argument(
         "--sam2-config",
@@ -355,7 +331,7 @@ def main() -> None:
     )
     ap.add_argument(
         "--grounding-checkpoint",
-        help="Grounding DINO .pth (required for --mask-mode grounding)",
+        help="Grounding DINO .pth",
     )
     ap.add_argument("--grounding-box-threshold", type=float, default=0.10)
     ap.add_argument("--grounding-text-threshold", type=float, default=0.12)
@@ -406,7 +382,7 @@ def main() -> None:
         default="centroid",
         help="refine: mask centroid or nearest in-mask pixel to SAM prompt",
     )
-    # shared
+    # 共用
     ap.add_argument("--out", required=True, help="output directory")
     args = ap.parse_args()
 
@@ -419,8 +395,8 @@ def main() -> None:
         for req in ("prompt", "object", "sam2_checkpoint"):
             if not getattr(args, req):
                 ap.error(f"--stage mask requires --{req.replace('_','-')}")
-        if args.mask_mode == "grounding" and not args.grounding_checkpoint:
-            ap.error("--stage mask with --mask-mode grounding requires --grounding-checkpoint")
+        if not args.grounding_checkpoint:
+            ap.error("--stage mask requires --grounding-checkpoint")
         stage_mask(args)
     else:
         stage_refine(args)

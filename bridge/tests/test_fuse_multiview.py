@@ -1,8 +1,7 @@
-"""Tests for bridge/fuse_multiview.py.
+"""bridge/fuse_multiview.py 的测试。
 
-Focuses on the math-only functions (RANSAC, geometric median) plus a smoke
-test that ``gather_candidates`` + ``fuse`` roundtrip a synthetic predictions
-JSON pointing at the real test1/ rasters.
+覆盖纯数学函数（RANSAC、几何中位数），以及用合成 predictions
+JSON 指向真实 test1/ 光栅、对 ``gather_candidates`` + ``fuse`` 做往返的冒烟测试。
 """
 from __future__ import annotations
 
@@ -34,8 +33,8 @@ def test_ransac_picks_dense_cluster_over_outliers() -> None:
         [0.0, 0.0, 0.0],
         [0.05, 0.02, -0.01],
         [0.1, -0.05, 0.0],
-        [10.0, 0.0, 0.0],   # outlier
-        [-9.0, 5.0, 1.0],   # outlier
+        [10.0, 0.0, 0.0],   # 离群点
+        [-9.0, 5.0, 1.0],   # 离群点
     ])
     inliers, support = ransac_select_inliers(pts, radius=0.5)
     assert support == 3
@@ -55,7 +54,7 @@ def test_ransac_empty() -> None:
     assert support == 0
 
 
-# --- Geometric median -------------------------------------------------------
+# --- 几何中位数 -------------------------------------------------------------
 
 
 def test_geometric_median_robust_to_outlier() -> None:
@@ -63,10 +62,10 @@ def test_geometric_median_robust_to_outlier() -> None:
         [0.0, 0.0, 0.0],
         [0.1, 0.0, 0.0],
         [0.0, 0.1, 0.0],
-        [100.0, 100.0, 100.0],   # heavy outlier
+        [100.0, 100.0, 100.0],   # 强离群点
     ])
     gm = geometric_median(pts)
-    # Mean would be pulled toward (25, 25, 25); median should stay near origin
+    # 均值会被拉向 (25, 25, 25)；中位数应仍靠近原点
     assert np.linalg.norm(gm) < 1.0
 
 
@@ -75,7 +74,7 @@ def test_geometric_median_single() -> None:
     np.testing.assert_allclose(geometric_median(p), [3.0, -1.0, 4.0])
 
 
-# --- gather_candidates + fuse smoke test against real test1 rasters --------
+# --- 用真实 test1 光栅对 gather_candidates + fuse 做冒烟测试 ----------------
 
 
 @pytest.mark.skipif(
@@ -84,10 +83,10 @@ def test_geometric_median_single() -> None:
     reason="3DGS/test1 artifacts missing",
 )
 def test_fuse_smoke_using_synthetic_predictions(tmp_path: Path) -> None:
-    """Build a predictions.json that aims all parsed views at the same pixel
-    region, run fuse(), and check it returns a 3D point inside the scene bbox.
+    """构造一份 predictions.json，让所有解析成功的视角指向同一像素区域，
+    运行 fuse()，并检查返回的 3D 点落在场景包围盒内。
     """
-    # Pick 4 views and the ground-truth pixel from view_000 testing baseline.
+    # 选取 4 个视角，以及 view_000 测试基线的真值像素。
     nx, ny = 0.458, 0.298
     view_ids = [0, 1, 2, 3]
     views = []
@@ -104,7 +103,7 @@ def test_fuse_smoke_using_synthetic_predictions(tmp_path: Path) -> None:
             "parse_ok": True,
             "error": None,
         })
-    # Add an "outlier" view with an extreme nx (likely yields a far world point)
+    # 再加一个极端 nx 的「离群」视角（很可能得到很远的世界点）
     views.append({
         "view_id": 5,
         "rgb_path": "rgb/view_005.png",
@@ -116,7 +115,7 @@ def test_fuse_smoke_using_synthetic_predictions(tmp_path: Path) -> None:
         "parse_ok": True,
         "error": None,
     })
-    # And one failed view that should be skipped silently.
+    # 以及一个失败视角，应被静默跳过。
     views.append({
         "view_id": 6,
         "rgb_path": "rgb/view_006.png",
@@ -139,12 +138,11 @@ def test_fuse_smoke_using_synthetic_predictions(tmp_path: Path) -> None:
     }
 
     cands = gather_candidates(predictions, min_inv=1e-3)
-    assert len(cands) >= 4  # at least 4 from view_ids; outlier may also pass min_inv
+    assert len(cands) >= 4  # 至少来自 view_ids 的 4 个；离群点也可能通过 min_inv
 
     result = fuse(predictions, inlier_radius=2.0, min_inv=1e-3)
-    # All real candidates from the same (nx, ny) shouldn't be miles apart
-    # (their world points come from independent cameras pointing at the same
-    # nominal pixel, so they may not coincide exactly, but support should be >= 1).
+    # 同一 (nx, ny) 的真实候选不应相距过远
+    # （世界点来自指向同一标称像素的独立相机，未必完全重合，但 support 应 >= 1）。
     assert result.support >= 1
     p = result.P_world
     bbox_min = np.array([-100.0, -100.0, -100.0])
@@ -153,7 +151,7 @@ def test_fuse_smoke_using_synthetic_predictions(tmp_path: Path) -> None:
 
 
 def test_view_000_single_candidate_matches_unproject_baseline(tmp_path: Path) -> None:
-    """Single view, single point -> fuse must return the unprojection itself."""
+    """单视角、单点 → fuse 必须返回该反投影本身。"""
     if not (TEST1 / "camera_params" / "view_000.json").is_file():
         pytest.skip("test1 artifacts missing")
 

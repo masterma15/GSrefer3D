@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite Windows E:\\ paths in projections_kept.json to /mnt/e/... for WSL mask."""
+"""把 projections_kept.json 里的 Windows E:\\ 路径改写成 /mnt/e/...，供 WSL mask 使用。"""
 from __future__ import annotations
 
 import argparse

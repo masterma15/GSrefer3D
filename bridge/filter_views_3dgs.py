@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Filter multi-view projections using 3DGS ray transmittance.
+"""用 3DGS 射线透射率过滤多视角投影。
 
-**Reject** (default): beam of 5 rays through ``P_world`` (+/- offsets); reject if
-``min(T) < --ray-min-transmittance``. Use ``--skip-ray-filter`` for manual / large
-objects (keeps all in-frustum views, no scipy ply load).
+**拒帧**（默认）：穿过 ``P_world`` 的 5 条射线束（含 +/- 偏移）；若
+``min(T) < --ray-min-transmittance`` 则拒绝。大物体 / 人工筛选可用
+``--skip-ray-filter``（保留全部视锥内视角，不加载 scipy ply）。
 
-**Yellow overlays** — depth-ratio cluster points (visualization only).
+**黄色 overlay** — 按深度比筛选的簇点（仅可视化）。
 
-Outputs: projections_kept.json, projections_rejected.json, filter_report.json,
-optional filter_overlays/.
+输出：projections_kept.json、projections_rejected.json、filter_report.json，
+以及可选的 filter_overlays/。
 
-Point relabel after SAM mask: ``gen_training_data.py --stage refine``.
+SAM mask 后重新标点：``gen_training_data.py --stage refine``。
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO / "bridge") not in sys.path:
     sys.path.insert(0, str(_REPO / "bridge"))
 
-from fuse_multiview import load_ply_xyz  # noqa: E402
+from frustum_segment import load_ply_xyz  # noqa: E402
 from gen_training_data import in_frame, world_to_image  # noqa: E402
 from ray_visibility import (  # noqa: E402
     RayOcclusionModel,
@@ -37,7 +37,7 @@ from ray_visibility import (  # noqa: E402
 )
 from unproject import Unprojector, CameraView  # noqa: E402
 
-# Preset bundles (applied in main() before filter_views). CLI flags override preset.
+# 预设包（在 main() 里于 filter_views 之前应用）。CLI 参数覆盖预设。
 FILTER_PRESETS: dict[str, dict[str, float | int | bool]] = {
     "default": {},
     "relaxed": {
@@ -46,7 +46,7 @@ FILTER_PRESETS: dict[str, dict[str, float | int | bool]] = {
         "min_cluster_in_frame": 5,
         "ray_beam_offset_m": 0.06,
     },
-  # ~+10 kept vs relaxed on medicine_bottle (tau from rejected T distribution)
+  # 相对 relaxed，medicine_bottle 约多保留 10 个视角（tau 来自被拒帧的 T 分布）
     "relaxed_plus": {
         "ray_min_transmittance": 0.12,
         "ray_perp_radius": 0.08,
@@ -57,7 +57,7 @@ FILTER_PRESETS: dict[str, dict[str, float | int | bool]] = {
 
 
 def apply_filter_preset(args: argparse.Namespace) -> argparse.Namespace:
-    """Merge named preset into args (only keys listed in FILTER_PRESETS)."""
+    """把命名预设合并进 args（仅处理 FILTER_PRESETS 中列出的键）。"""
     name = getattr(args, "filter_preset", "default") or "default"
     if name not in FILTER_PRESETS:
         sys.exit(f"[error] unknown --filter-preset {name!r}; choose from {list(FILTER_PRESETS)}")
@@ -76,7 +76,7 @@ def select_cluster_indices(
     min_cluster: int = 0,
     max_radius: float = 0.35,
 ) -> tuple[np.ndarray, float]:
-    """Return (indices, effective_radius). Grows radius until min_cluster or max_radius."""
+    """返回 (indices, effective_radius)。扩大半径直到满足 min_cluster 或触及 max_radius。"""
     d = np.linalg.norm(xyz - p_world.reshape(1, 3), axis=1)
     r_eff = float(radius)
     while True:

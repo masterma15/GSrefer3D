@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Build demo/teaser_base_lora_<object>.png from two e2e runs' overlays_rgb/.
+"""用两次 e2e run 的 overlays_rgb/ 拼出 demo/teaser_base_lora_<object>.png。
 
-Layout matches ``demo/teaser_base_lora_tape.png``: *n* rows (views) × 2 columns
-(Base | LoRA). Reads ``overlay_view_XXX.png`` produced by ``run_bridge_e2e.py``.
+版式与 ``demo/teaser_base_lora_tape.png`` 一致：*n* 行（视角）× 2 列
+（Base | LoRA）。读取 ``run_bridge_e2e.py`` 生成的 ``overlay_view_XXX.png``。
 
-Requires: pip install pillow
+依赖：pip install pillow
 
-Examples::
+示例::
 
-  # Hold-out tape (same runs as README §3)
+  # hold-out 胶带（与 README §3 相同的 run）
   python bridge/make_e2e_teaser.py --preset tape --output demo/teaser_base_lora_tape.png
 
-  # In-domain umbrella — auto-pick 3 views with largest LoRA 2D gain vs GT
+  # 域内雨伞 — 自动选相对 GT 的 LoRA 2D 增益最大的 3 个视角
   python bridge/make_e2e_teaser.py --preset umbrella --output demo/teaser_base_lora_umbrella.png
 
-  # Explicit runs + views
+  # 显式指定 run 与视角
   python bridge/make_e2e_teaser.py \\
     --base-run 20260519_170540_4c3b9a32 \\
     --lora-run 20260519_143457_4c3b9a32 \\
@@ -31,7 +31,7 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
 
-# suffix run_id pairs from docs/RESULTS.md §2–§3 (Base, LoRA, GT slug or None)
+# 来自 docs/RESULTS.md §2–§3 的 suffix run_id 对（Base、LoRA、GT slug 或 None）
 PRESETS: dict[str, tuple[str, str, str | None]] = {
     "tape": ("20260519_000313_6c883d56", "20260519_132142_6c883d56", None),
     "shaver": ("20260519_170540_4c3b9a32", "20260519_143457_4c3b9a32", "shaver"),

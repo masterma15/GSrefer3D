@@ -1,4 +1,4 @@
-"""Tests for yellow-overlay depth ratio helper (filter_views_3dgs)."""
+"""黄色叠加深度比辅助函数的测试（filter_views_3dgs）。"""
 from __future__ import annotations
 
 import sys

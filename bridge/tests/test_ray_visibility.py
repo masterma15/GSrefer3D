@@ -1,4 +1,4 @@
-"""Tests for ray transmittance visibility (reject-mode B)."""
+"""射线透射可见性测试（拒帧模式 B）。"""
 from __future__ import annotations
 
 import sys
@@ -20,11 +20,11 @@ def test_ray_reject_low_transmittance() -> None:
 
 
 def test_transmittance_foreground_blocks() -> None:
-    """Opaque Gaussian in front of anchor should drop T(z_lo)."""
+    """锚点前方的不透明高斯应使 T(z_lo) 下降。"""
     xyz = np.array(
         [
-            [0.0, 0.0, 2.0],  # foreground occluder
-            [0.0, 0.0, 4.0],  # target cluster
+            [0.0, 0.0, 2.0],  # 前景遮挡物
+            [0.0, 0.0, 4.0],  # 目标簇
         ],
         dtype=np.float64,
     )

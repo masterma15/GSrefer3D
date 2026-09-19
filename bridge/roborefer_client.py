@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Batch RoboRefer client for a 3DGS custom-view directory.
+"""针对 3DGS 自定义视角目录的批量 RoboRefer 客户端。
 
-Layout expected (produced by ``3DGS/render.py --custom_views``, default 36 views):
+期望的目录布局（由 ``3DGS/render.py --custom_views`` 生成，默认 36 个视角）：
 
   <root>/
-    rgb/view_NNN.png          # N views (default 36 from 3DGS/render.py --custom_views)
-    depth/view_NNN.png        # 8-bit invdepth-style PNG fed to RoboRefer
-    depth_raw/view_NNN.npy    # float32, kept for downstream unprojection
+    rgb/view_NNN.png          # N 个视角（默认 36，来自 3DGS/render.py --custom_views）
+    depth/view_NNN.png        # 8-bit 逆深度风格 PNG，送给 RoboRefer
+    depth_raw/view_NNN.npy    # float32，留给下游反投影
     camera_params/view_NNN.json
 
-For each view this script POSTs (RGB, depth.png) to the RoboRefer API with
-``enable_depth=1, depth_url=[depth.png]``, parses the returned ``[(nx, ny), ...]``,
-and writes a single ``predictions.json``:
+对每个视角，本脚本将 (RGB, depth.png) POST 到 RoboRefer API，参数为
+``enable_depth=1, depth_url=[depth.png]``，解析返回的 ``[(nx, ny), ...]``，
+并写出一份 ``predictions.json``：
 
   {
     "prompt":   "Please point to ...",
@@ -34,16 +34,16 @@ and writes a single ``predictions.json``:
     ]
   }
 
-A view that returned None or unparseable text keeps ``points=[]`` and records
-``error``; the run does NOT abort. Single-view mode (``--rgb`` + ``--depth``)
-preserves the old minimal_roborefer_e2e.py behaviour.
+某视角返回 None 或无法解析的文本时，保留 ``points=[]`` 并记录
+``error``；整次运行不会中止。单视角模式（``--rgb`` + ``--depth``）
+保持旧版 minimal_roborefer_e2e.py 的行为。
 
-Run this inside the RoboRefer conda env (Linux/WSL recommended):
+在 RoboRefer conda 环境中运行（推荐 Linux/WSL）：
   conda activate roborefer
-  # in one shell:
+  # 一个终端：
   cd RoboRefer-main/API && python api.py --port 25547
-  # defaults: <repo>/weights/depth_anything_v2_vitl.pth, <repo>/RoboRefer-2B-SFT
-  # in another:
+  # 默认权重：<repo>/weights/depth_anything_v2_vitl.pth、<repo>/RoboRefer-2B-SFT
+  # 另一个终端：
   python bridge/roborefer_client.py \
     --root 3DGS/test1 \
     --prompt "Please point to the most salient object in the center." \
@@ -83,7 +83,7 @@ def _query_server(
     depth_paths: list[str] | None = None,
     retry: int = 3,
 ) -> str | None:
-    """Direct HTTP client for RoboRefer /query endpoint (no openai dependency)."""
+    """RoboRefer /query 端点的直接 HTTP 客户端（不依赖 openai）。"""
     import requests as _requests
 
     image_url_list = [_encode_image(p) for p in image_paths]
@@ -108,11 +108,11 @@ def _query_server(
 
 
 def _parse_points(answer: str) -> tuple[list[dict[str, float]], str | None]:
-    """Best-effort parse of RoboRefer output into [{nx, ny}, ...]."""
+    """尽力把 RoboRefer 输出解析为 [{nx, ny}, ...]。"""
     if not isinstance(answer, str):
         return [], f"answer not a string: {type(answer).__name__}"
     txt = answer.strip()
-    # Some RoboRefer answers wrap the list in prose; isolate the first [...] block.
+    # 部分 RoboRefer 回答会把列表包在散文里；提取第一个 [...] 块。
     m = re.search(r"\[.*\]", txt, flags=re.DOTALL)
     if m is None:
         return [], "no list literal found"
@@ -221,39 +221,6 @@ def run_batch(args: argparse.Namespace) -> dict[str, Any]:
     print(f"[info] views={vids}")
     print(f"[info] enable_depth={enable_depth}  url={args.url}")
 
-    # --- visibility pre-filter (optional) ---
-    vis_checker = None
-    visibility_object: str | None = None
-    if getattr(args, "visibility_check", False):
-        try:
-            from visibility_client import (
-                check_visibility,
-                object_phrase_for_visibility,
-                resolve_visibility_base_url,
-                resolve_visibility_model,
-            )
-        except ImportError:
-            print(
-                "[error] --visibility-check requires the openai package. "
-                "In the same conda env you use for this script: pip install openai",
-                file=sys.stderr,
-            )
-            raise SystemExit(2) from None
-        vis_checker = check_visibility
-        visibility_object = object_phrase_for_visibility(args.prompt)
-        _vb = resolve_visibility_base_url(getattr(args, "visibility_base_url", None))
-        if getattr(args, "visibility_strict", False):
-            _vm = "strict"
-        elif getattr(args, "visibility_permissive", False):
-            _vm = "permissive"
-        else:
-            _vm = "relaxed"
-        _vmdl = resolve_visibility_model(getattr(args, "visibility_model", None))
-        print(
-            f"[info] visibility check enabled  object={visibility_object!r}  "
-            f"dashscope={_vb}  mode={_vm}  model={_vmdl}"
-        )
-
     view_records: list[dict[str, Any]] = []
     for vid in vids:
         paths = view_paths(root, vid)
@@ -267,77 +234,10 @@ def run_batch(args: argparse.Namespace) -> dict[str, Any]:
                 "depth_raw_path": _rel(root, paths["depth_raw"]),
                 "camera_path": _rel(root, paths["camera"]),
                 "visible": None,
-                "visibility_raw": None,
                 "raw_answer": None,
                 "points": [],
                 "parse_ok": False,
                 "error": err,
-            })
-            continue
-
-        # visibility check
-        visible, vis_raw = True, None
-        if vis_checker is not None:
-            assert visibility_object is not None
-            try:
-                vis_kw: dict[str, Any] = {}
-                vb = getattr(args, "visibility_base_url", None)
-                if vb and str(vb).strip():
-                    vis_kw["base_url"] = str(vb).strip()
-                if getattr(args, "visibility_strict", False):
-                    vis_kw["strict"] = True
-                elif getattr(args, "visibility_permissive", False):
-                    vis_kw["permissive"] = True
-                vm = getattr(args, "visibility_model", None)
-                if vm and str(vm).strip():
-                    vis_kw["model"] = str(vm).strip()
-                visible, vis_raw = vis_checker(paths["rgb"], visibility_object, **vis_kw)
-                status = "visible" if visible else "not-visible"
-                print(f"[vis]  view_{vid:03d}: {status}  ({vis_raw!r})")
-            except Exception as e:
-                detail = f"{type(e).__name__}: {e}"
-                c = e.__cause__
-                d = 0
-                while c is not None and d < 4:
-                    detail += f" | {type(c).__name__}: {c}"
-                    c = getattr(c, "__cause__", None)
-                    d += 1
-                hint = ""
-                if "Connection" in type(e).__name__ or "connection" in str(e).lower():
-                    hint = (
-                        " [hint: outside China try "
-                        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1 "
-                        "via --visibility-base-url or QWEN_VISIBILITY_BASE_URL]"
-                    )
-                print(f"[vis-warn] view_{vid:03d}: {detail}{hint}, skipping RoboRefer for this view")
-                view_records.append({
-                    "view_id": vid,
-                    "rgb_path": _rel(root, paths["rgb"]),
-                    "depth_path": _rel(root, paths["depth"]),
-                    "depth_raw_path": _rel(root, paths["depth_raw"]),
-                    "camera_path": _rel(root, paths["camera"]),
-                    "visible": None,
-                    "visibility_raw": None,
-                    "raw_answer": None,
-                    "points": [],
-                    "parse_ok": False,
-                    "error": f"visibility_check_api_error: {detail}",
-                })
-                continue
-
-        if not visible:
-            view_records.append({
-                "view_id": vid,
-                "rgb_path": _rel(root, paths["rgb"]),
-                "depth_path": _rel(root, paths["depth"]),
-                "depth_raw_path": _rel(root, paths["depth_raw"]),
-                "camera_path": _rel(root, paths["camera"]),
-                "visible": False,
-                "visibility_raw": vis_raw,
-                "raw_answer": None,
-                "points": [],
-                "parse_ok": False,
-                "error": "filtered by visibility check",
             })
             continue
 
@@ -361,7 +261,6 @@ def run_batch(args: argparse.Namespace) -> dict[str, Any]:
                 "depth_raw_path": _rel(root, paths["depth_raw"]),
                 "camera_path": _rel(root, paths["camera"]),
                 "visible": True,
-                "visibility_raw": vis_raw,
                 "raw_answer": None,
                 "points": [],
                 "parse_ok": False,
@@ -381,7 +280,6 @@ def run_batch(args: argparse.Namespace) -> dict[str, Any]:
             "depth_raw_path": _rel(root, paths["depth_raw"]),
             "camera_path": _rel(root, paths["camera"]),
             "visible": True,
-            "visibility_raw": vis_raw,
             "raw_answer": answer,
             "points": points,
             "parse_ok": ok,
@@ -395,36 +293,12 @@ def run_batch(args: argparse.Namespace) -> dict[str, Any]:
         "enable_depth": enable_depth,
         "root": str(root).replace("\\", "/"),
         "views": view_records,
-        "visibility_check_requested": bool(getattr(args, "visibility_check", False)),
-        "visibility_check_active": vis_checker is not None,
-        "visibility_object": visibility_object,
-        "visibility_dashscope_base_url": (
-            resolve_visibility_base_url(getattr(args, "visibility_base_url", None))
-            if getattr(args, "visibility_check", False) and vis_checker is not None
-            else None
-        ),
-        "visibility_prompt_mode": (
-            "strict"
-            if getattr(args, "visibility_strict", False)
-            else (
-                "permissive"
-                if getattr(args, "visibility_permissive", False)
-                else "relaxed"
-            )
-        )
-        if getattr(args, "visibility_check", False) and vis_checker is not None
-        else None,
-        "visibility_model": (
-            resolve_visibility_model(getattr(args, "visibility_model", None))
-            if getattr(args, "visibility_check", False) and vis_checker is not None
-            else None
-        ),
     }
     return summary
 
 
 def run_single(args: argparse.Namespace) -> dict[str, Any]:
-    """Backwards-compatible single-view mode (replaces minimal_roborefer_e2e.py)."""
+    """兼容旧版的单视角模式（替代 minimal_roborefer_e2e.py）。"""
     rgb = args.rgb.resolve()
     depth = args.depth.resolve() if args.depth is not None else None
     enable_depth = 0 if (args.no_depth or depth is None) else 1
@@ -448,7 +322,7 @@ def run_single(args: argparse.Namespace) -> dict[str, Any]:
     print("parsed points:", points)
 
     if args.output_image is not None:
-        # use RoboRefer's helper to draw circles on the original RGB
+        # 用 RoboRefer 的辅助函数在原始 RGB 上画圈
         api_dir = Path(__file__).resolve().parents[1] / "RoboRefer-main" / "API"
         sys.path.insert(0, str(api_dir))
         import use_api as use_api_mod  # noqa: WPS433
@@ -481,48 +355,10 @@ def main() -> None:
     ap.add_argument("--no-depth", action="store_true", help="Force RGB-only mode.")
     ap.add_argument("--no-suffix", action="store_true", help="Do not append the standard normalized-coordinates suffix.")
 
-    # batch mode
+    # 批量模式
     ap.add_argument("--root", type=Path, default=None, help="Custom-view root (e.g. 3DGS/test1)")
     ap.add_argument("--views", type=int, nargs="+", default=None, help="Subset of view ids; default = all.")
     ap.add_argument("--output", type=Path, default=None, help="Where to write predictions.json (batch mode).")
-    ap.add_argument("--visibility-check", action="store_true",
-                    help="Pre-filter views with Qwen2-VL visibility check (requires QWEN_API_KEY).")
-    ap.add_argument(
-        "--visibility-base-url",
-        default=None,
-        metavar="URL",
-        help=(
-            "DashScope OpenAI-compatible base URL for visibility (overrides env). "
-            "Default China: https://dashscope.aliyuncs.com/compatible-mode/v1 — "
-            "overseas often: https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-        ),
-    )
-    vis_grp = ap.add_mutually_exclusive_group()
-    vis_grp.add_argument(
-        "--visibility-strict",
-        action="store_true",
-        help=(
-            "Strict 'clearly visible' visibility prompt (more false negatives). "
-            "Mutually exclusive with --visibility-permissive."
-        ),
-    )
-    vis_grp.add_argument(
-        "--visibility-permissive",
-        action="store_true",
-        help=(
-            "Strongest bias toward keeping each view (tiny/distant/blurred/occluded still usually yes). "
-            "Use when relaxed still drops too many plausible angles; may keep some useless views."
-        ),
-    )
-    ap.add_argument(
-        "--visibility-model",
-        default=None,
-        metavar="NAME",
-        help=(
-            "DashScope vision model for visibility (default: qwen-vl-plus). "
-            "Try qwen-vl-max if too many false 'no'. Env QWEN_VISIBILITY_MODEL overrides when unset."
-        ),
-    )
     ap.add_argument("--rgb", type=Path, default=None)
     ap.add_argument("--depth", type=Path, default=None)
     ap.add_argument("--output-image", type=Path, default=None, help="Annotated RGB output (single-view only).")

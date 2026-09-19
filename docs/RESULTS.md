@@ -1,8 +1,8 @@
 # Experimental results (GSrefer3D · data2)
 
-> Last updated: 2026-05-26  
-> Raw 2D metrics: [`results_2d_eval.json`](results_2d_eval.json) · Depth ablation: [`depth_compare_batch.json`](depth_compare_batch.json) · 3D OBB: [`results_3d_obb_hit.json`](results_3d_obb_hit.json)  
-> Pipeline figure: [`../demo/pipeline.png`](../demo/pipeline.png)
+> Last updated: 2026-09-19  
+> Raw 2D: [`results_2d_eval.json`](results_2d_eval.json) · **3D instance:** [`results_gaussian_seg.json`](results_gaussian_seg.json)  
+> Chart: [`../demo/teaser_gaussian_seg.png`](../demo/teaser_gaussian_seg.png) · pipeline: [`../demo/pipeline.png`](../demo/pipeline.png)
 
 ---
 
@@ -12,13 +12,13 @@
 |------|------|-------------------|
 | 1 | Depth ablation (z₀ source) | §1 |
 | 2 | Manual OBB in CloudCompare | [`bbox_data2.json`](bbox_data2.json), [`bbox_labels/`](bbox_labels/) |
-| 3 | Initial fusion (invdepth + snap) → 469 SFT pack | README §3; train-data teaser |
+| 3 | Initial fusion (invdepth + snap) → mask seed + 469 SFT pack | README §3; train-data teaser |
 | 4 | LoRA on `data2_location` | Training run (not tabulated here) |
 | 5 | Base vs LoRA — in-domain 2D + hold-out tape | §2, §3 |
 | 6 | RefSpatial-Expand-Bench (OOD) | §4 |
-| 7 | Ray fusion → `fused_ray.json` + OBB hit vs manual box | §2b |
+| 7 | Frustum-vote 3D instance vs hand OBB | §2b |
 
-**Fusion naming:** **`fused.json`** = historical e2e (invdepth + snap). **`fused_ray.json`** = same predictions, ray depth pull-in (step 7 only).
+**Seed vs result:** **`fused.json` / `P_world`** = mask seed only. **`gaussian_seg.json`** = reported 3D instance. Do not use historical seed-point OBB tables as the 3D metric.
 
 ---
 
@@ -26,11 +26,11 @@
 
 | Metric | Primary for README / interview? | Notes |
 |--------|----------------------------------|-------|
-| **2D median L2** (vs SFT GT) | **Yes** | Normalized `(nx, ny)` Euclidean distance; lower is better |
-| **% L2 &lt; 0.05** | Secondary | Rough “near GT” rate |
-| **support** (fuse inlier count) | Secondary | Multi-view geometry consistency; **not** the same as 2D accuracy |
+| **2D median L2** (vs SFT GT) | **Yes** (VLM) | Normalized `(nx, ny)` Euclidean distance; lower is better |
+| **centroid ∈ OBB** / **frac in OBB** | **Yes** (3D instance) | Vote centroid and selected-Gaussian precision vs hand OBB |
+| **2D mask reprojection precision** | Secondary | Selected μ fall in that view’s SAM mask |
 | **Expand Location %** | Out-of-domain | Report separately from in-domain data2 |
-| **Depth NN median** | One-line ablation | Shows why unprojection uses 3DGS `depth_raw` |
+| **Fuse `P_world` ∈ OBB** | No (seed only) | Intermediate; not a reported 3D score |
 
 **Reproduce 2D table:**
 
@@ -95,40 +95,56 @@ Overlays: `3DGS/test2/runs/<run_id>/overlays_rgb/view_XXX.png` (local; not in Gi
 
 ---
 
-## 2b. 3D OBB hit rate (manual CloudCompare OBB)
+## 2b. 3D instance — frustum vote vs hand OBB
 
-11 objects · GT = hand OBB in [`bbox_data2.json`](bbox_data2.json) · **Base** `fused.json` · **LoRA** `fused_ray.json` (ray depth re-fuse).
+`P_world` is a mask seed only. GT = hand OBB in [`bbox_data2.json`](bbox_data2.json). Metrics from `gaussian_seg.json` (`--min-vote-frac 0.5`).
 
-| Object | Base hit | LoRA hit | Base outside (m) | LoRA outside (m) |
-|--------|:--------:|:--------:|------------------:|------------------:|
-| Electric shaver | ✓ | ✓ | 0.000 | 0.000 |
-| Brown rabbit | ✓ | ✓ | 0.000 | 0.000 |
-| Golden retriever | ✓ | ✓ | 0.000 | 0.000 |
-| Umbrella | ✓ | ✓ | 0.000 | 0.000 |
-| Toy cake | ✓ | ✓ | 0.000 | 0.000 |
-| Medicine bottle | ✓ | ✓ | 0.000 | 0.000 |
-| Bracelet | ✓ | ✓ | 0.000 | 0.000 |
-| Cookie bag | ✗ | ✓ | 0.006 | 0.000 |
-| Golden bowl | ✗ | ✓ | 0.126 | 0.000 |
-| Double-sided tape | ✗ | ✓ | 0.056 | 0.000 |
-| Hair clip | ✗ | ✗ | 0.086 | 0.104 |
+| Object | n selected | centroid ∈ OBB | frac in OBB | mask2d prec |
+|--------|----------:|:--------------:|------------:|------------:|
+| golden_bowl | 13903 | ✓ | 0.983 | 0.952 |
+| bracelet | 3722 | ✓ | 1.000 | 0.916 |
+| cookie_bag | 3001 | ✓ | 0.987 | 0.834 |
+| golden_retriever | 25955 | ✓ | 0.999 | 0.938 |
+| hair_clip | 3833 | ✓ | 0.975 | 0.871 |
+| medicine_bottle | 9541 | ✓ | 1.000 | 0.940 |
+| brown_rabbit | 103584 | ✓ | 0.996 | 0.931 |
+| electric_shaver | 6958 | ✓ | 0.992 | 0.914 |
+| toy_cake | 6451 | ✓ | 1.000 | 0.868 |
+| umbrella | 19311 | ✓ | 1.000 | 0.836 |
 
-**Hit rate:** Base **63.6%** (7/11) · LoRA **90.9%** (10/11).  
-Reproduce: `python bridge/eval_3d_obb_offset.py --refuse-lora-ray` · SIBR: `python bridge/inject_obb_compare.py --all-presets`  
-JSON: [`results_3d_obb_hit.json`](results_3d_obb_hit.json) · [`results_3d_obb_offset.json`](results_3d_obb_offset.json)
+**Summary (10/10):** centroid hit **100%** · mean frac in OBB **0.993** · mean view-mask precision **0.900**.  
+JSON: [`results_gaussian_seg.json`](results_gaussian_seg.json) · figure: [`../demo/teaser_gaussian_seg.png`](../demo/teaser_gaussian_seg.png). Hair-clip fuse seed can sit ~10 cm outside the thin OBB; the vote centroid is inside.
+
+SIBR orbit (voted Gaussians, official 3D viz): [`../demo/shaver.gif`](../demo/shaver.gif) · [`rabbit.gif`](../demo/rabbit.gif) · [`golden_retriever.gif`](../demo/golden_retriever.gif) · [`umbrella.gif`](../demo/umbrella.gif) · [`cake.gif`](../demo/cake.gif) · [`hair_clip.gif`](../demo/hair_clip.gif). Hold-out tape: [`../demo/double_sided_tape.gif`](../demo/double_sided_tape.gif). Do not use `teaser_3d_*.gif` (old seed-marker orbits).
+
+Reproduce:
+
+```powershell
+python bridge/eval_gaussian_seg.py --obj-glob training_data/data2_* --output docs/results_gaussian_seg.json
+```
+
+SIBR: `python bridge/inject_gaussian_seg.py --obj-glob training_data/data2_*`
 
 ---
 
-## 3. Double-sided tape — excluded from data2 SFT (no GT)
+## 3. Double-sided tape — hold-out (not in 469 SFT)
 
-Excluded from data2 SFT (469 samples); same 3DGS scene; qualitative overlay only. Not in `data2_sft` · Prompt: *clear double-sided adhesive tape on the desk* · 72 views.
+Same 3DGS scene; **not** exported to `data2_sft`. Prompt: *clear double-sided adhesive tape on the desk*. Mask pack: `training_data/data2_tape/` (46 kept views). Seed for masks: LoRA `20260519_132142_6c883d56`.
 
-| Group | run_id (suffix) | 2D GT | support | Notes |
-|-------|-----------------|-------|---------|-------|
-| Base | `000313_6c883d56` | — | 15 | Check `overlays_rgb/` qualitatively |
-| LoRA | `132142_6c883d56` | — | 17 | Same |
+**2D vs mask centroid** (same L2 as §2; **do not mix** into the 10-object table). JSON: [`results_2d_eval_tape.json`](results_2d_eval_tape.json).
 
-No automatic 2D score; report as **qualitative overlay comparison** only. Teaser: [`../demo/teaser_base_lora_tape.png`](../demo/teaser_base_lora_tape.png).
+| Group | run_id (suffix) | n | median L2↓ | mean L2 | %&lt;0.05 | support | Δ median (LoRA−Base) |
+|-------|-----------------|---|------------|---------|----------|---------|----------------------|
+| Base | `000313_6c883d56` | 46 | 0.0214 | 0.1666 | 56.5% | 15 | — |
+| LoRA | `132142_6c883d56` | 46 | **0.0132** | 0.1528 | 63.0% | 17 | **−0.0082** |
+
+Mean ≫ median: a few views are far off; report median as the primary 2D number.
+
+```powershell
+python bridge/eval_2d_vs_gt.py --tape-only --out docs/results_2d_eval_tape.json
+```
+
+Frustum vote vs hand OBB (hold-out, not in the 10-object 3D summary): centroid ∈ OBB **yes** · frac in OBB **0.958** · view-mask precision **0.821**. SIBR: `--iteration seg_double_sided_tape`. Orbit: [`../demo/double_sided_tape.gif`](../demo/double_sided_tape.gif). Overlay teaser: [`../demo/teaser_base_lora_tape.png`](../demo/teaser_base_lora_tape.png).
 
 ---
 

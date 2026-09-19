@@ -5,10 +5,16 @@
 | `pipeline.png` | **Yes** | End-to-end diagram; root [README](../README.md) |
 | `teaser_depth_ablation.png` | **Yes** | Depth source ablation bar chart |
 | `teaser_train_data.png` | **Yes** | SFT label refine (proj → mask centroid) |
-| `teaser_3d_electric_shaver.gif` | **Yes** | SIBR orbit — electric shaver 3D anchor (LoRA); **1718×958** full-res (~58 MB) |
-| `teaser_3d_brown_rabbit.gif` | **Yes** | SIBR orbit — brown rabbit 3D anchor (LoRA); **1718×958** full-res (~36 MB) |
-| `teaser_3d_electric_shaver.gif.orig` | **Yes** | Same as above (explicit backup copy) |
-| `teaser_3d_brown_rabbit.gif.orig` | **Yes** | Same as above (explicit backup copy) |
+| `teaser_gaussian_seg.png` | **Yes** | Frustum-vote 3D instance vs hand OBB |
+| `shaver.gif` | **Yes** | SIBR orbit — electric shaver (voted Gaussians) |
+| `rabbit.gif` | **Yes** | SIBR orbit — brown rabbit |
+| `golden_retriever.gif` | **Yes** | SIBR orbit — golden retriever |
+| `umbrella.gif` | **Yes** | SIBR orbit — umbrella |
+| `cake.gif` | **Yes** | SIBR orbit — toy cake |
+| `hair_clip.gif` | **Yes** | SIBR orbit — hair clip |
+| `double_sided_tape.gif` | **Yes** | SIBR orbit — hold-out tape |
+| `teaser_3d_electric_shaver.gif` | no | Old fused-point / seed-marker orbit — **not** the 3D result |
+| `teaser_3d_brown_rabbit.gif` | no | Same; do not cite as 3D eval |
 | `teaser_base_lora_umbrella.png` | **Yes** | Base vs LoRA overlays — umbrella |
 | `teaser_base_lora_golden_retriever.png` | **Yes** | Base vs LoRA overlays — golden retriever |
 | `teaser_base_lora_rabbit.png` | **Yes** | Base vs LoRA overlays — brown rabbit |
@@ -34,13 +40,21 @@ Requires existing `runs/<run_id>/overlays_rgb/overlay_view_*.png` from `run_brid
 
 ### Optional: smaller GIFs for slow networks
 
-Full-res SIBR GIFs are large but clearer (README uses them). To generate **~5–10 MB** previews **without overwriting** the committed files:
+Official SIBR orbits are compressed in place to ~5–10 MB (full-res copies kept as `*.gif.orig`, not in Git):
 
 ```powershell
-python bridge/compress_demo_gif.py --demo-dir demo --suffix _preview
+python bridge/compress_demo_gif.py --demo-dir demo
 ```
 
-Writes `teaser_3d_*_preview.gif` locally only (not tracked in Git).
+Do not compress `teaser_3d_*.gif` into the README; those are historical seed-marker orbits.
+
+### Export `teaser_gaussian_seg.png`
+
+```powershell
+python bridge/plot_gaussian_seg_teaser.py
+```
+
+Official SIBR orbits (voted Gaussians): `demo/{shaver,rabbit,golden_retriever,umbrella,cake,hair_clip,double_sided_tape}.gif`. Do not use `teaser_3d_*.gif`.
 
 | `pipeline_overview.mmd` | local | Mermaid source for `pipeline.png` |
 

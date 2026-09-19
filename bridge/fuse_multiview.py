@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
-"""Fuse per-view RoboRefer predictions into a single 3D point.
+"""把各视角 RoboRefer 预测融合成一个三维点。
 
-Input: predictions.json produced by bridge/roborefer_client.py.
+输入：bridge/roborefer_client.py 写出的 predictions.json。
 
-Pipeline:
-  1. For every (view, point) pair, look up depth_raw + camera JSON, then unproject
-     (nx, ny) -> world coordinates. With ``--depth-mode ray`` (default in CLI), z is
-     refined along the ray onto local Gaussians from ``--ply`` (see ``ray_unproject.py``);
-     otherwise use raster expected_invdepth at the pixel only.
-     Points below ``--min-inv`` are dropped.
-  2. RANSAC vote: for each candidate world point P_i, count how many other
-     candidates are within ``--inlier-radius`` of P_i. Keep the candidate with
-     the largest support; ties broken by smallest mean distance.
-  3. Refine: take the geometric median of inliers (Weiszfeld iterations),
-     which is robust to remaining outliers vs a plain mean.
+流程：
+  1. 对每个 (视角, 点) 读取 depth_raw 与相机 JSON，把 (nx, ny) 反投影到世界坐标。
+     CLI 默认 ``--depth-mode ray``：沿射线用 ``--ply`` 局部高斯精炼 z（见 ``ray_unproject.py``）；
+     否则只用像素处的栅格 expected_invdepth。低于 ``--min-inv`` 的点丢弃。
+  2. RANSAC 投票：对每个候选 P_i，统计 ``--inlier-radius`` 内的邻居数，取支持最多者；
+     平局取到其内点平均距离更小的。
+  3. 精炼：对内点做几何中位数（Weiszfeld），比简单均值更抗残留离群点。
 
-``--ply`` is only required for ``--depth-mode ray`` (per-view depth along the ray).
+``--ply`` 仅在 ``--depth-mode ray``（沿射线求深度）时需要。
 
-Output: fused.json with the final P_world, inlier set, per-view candidates,
-and provenance fields.
+输出 fused.json：最终 P_world、内点集、各视角候选与来源字段。
 
-Run inside the gaussian_splatting conda env (numpy + plyfile).
+在 gaussian_splatting conda 环境中运行（numpy + plyfile）。
 """
 from __future__ import annotations
 
@@ -106,7 +101,7 @@ class FusionResult:
 
 
 # ---------------------------------------------------------------------------
-# Candidate gathering
+# 收集候选点
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +183,7 @@ def gather_candidates(
 
 
 # ---------------------------------------------------------------------------
-# RANSAC + geometric median
+# RANSAC + 几何中位数
 # ---------------------------------------------------------------------------
 
 
@@ -196,10 +191,10 @@ def ransac_select_inliers(
     points: np.ndarray,  # (N, 3)
     radius: float,
 ) -> tuple[list[int], int]:
-    """Pick the candidate with the most neighbours within ``radius``.
+    """选 ``radius`` 内邻居最多的候选。
 
-    Returns (inlier_indices, support) where support == len(inlier_indices).
-    Ties broken by the candidate with the smallest mean distance to its inliers.
+    返回 (内点下标, support)，support == len(内点下标)。
+    平局取到其内点平均距离更小的候选。
     """
     n = points.shape[0]
     if n == 0:
@@ -226,7 +221,7 @@ def ransac_select_inliers(
 
 
 def geometric_median(points: np.ndarray, *, iters: int = 64, eps: float = 1e-7) -> np.ndarray:
-    """Weiszfeld's algorithm. Returns the L1 (median) center of `points`."""
+    """Weiszfeld 算法。返回 `points` 的 L1（中位数）中心。"""
     if points.shape[0] == 1:
         return points[0].copy()
     x = points.mean(axis=0)
@@ -250,8 +245,7 @@ def iterative_refine(
     max_iters: int = 5,
     min_points: int = 2,
 ) -> tuple[np.ndarray, list[int]]:
-    """Iteratively refine inliers: compute geometric median, drop points
-    farther than k * median_distance, repeat until stable."""
+    """迭代精炼内点：算几何中位数，丢掉远于 k * 中位距离的点，直到稳定。"""
     indices = list(inlier_indices)
     for _ in range(max_iters):
         if len(indices) < min_points:
@@ -335,7 +329,7 @@ def fuse(
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# 命令行
 # ---------------------------------------------------------------------------
 
 
@@ -351,9 +345,7 @@ def main() -> None:
     ap.add_argument("--refine-k", type=float, default=1.35, help="Refinement threshold multiplier (k * median_dist)")
     ap.add_argument("--output", type=Path, default=None, help="Where to write fused.json (default: predictions sibling)")
     ap.add_argument("--depth-dir", type=Path, default=None,
-                    help="Override depth_raw directory (e.g. depth_raw_dav2/ for DAv2-aligned depth)")
-    ap.add_argument("--exclude", type=int, nargs="+", default=None,
-                    help="View IDs to exclude from fusion (e.g. --exclude 5 24)")
+                    help="Override depth_raw directory")
     ap.add_argument(
         "--depth-mode",
         choices=("invdepth", "ray"),
@@ -372,13 +364,6 @@ def main() -> None:
 
     with args.predictions.open("r", encoding="utf-8") as f:
         predictions = json.load(f)
-
-    if args.exclude:
-        exclude_set = set(args.exclude)
-        for v in predictions["views"]:
-            if v.get("view_id") in exclude_set:
-                v["visible"] = False
-                print(f"[exclude] view_id={v['view_id']}")
 
     result = fuse(
         predictions,

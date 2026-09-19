@@ -54,7 +54,6 @@ run_one() {
   local out="$1" prompt="$2" obj="$3"
   echo "========== $out =========="
   python bridge/gen_training_data.py --stage mask \
-    --mask-mode grounding \
     --out "$ROOT/training_data/$out" \
     --prompt "$prompt" \
     --object "$obj" \
@@ -78,5 +77,6 @@ run_one data2_rabbit "Please point to the brown plush rabbit." "plush rabbit"
 run_one data2_shaver "Please point to the electric shaver on the desk." "electric shaver"
 run_one data2_toy_cake "Please point to the toy cake held by the brown plush rabbit." "small decorative toy cake"
 run_one data2_umbrella "Please point to the black and red umbrella on the desk." "umbrella"
+run_one data2_tape "Please point to the roll of clear double-sided adhesive tape on the desk." "roll of clear double-sided tape"
 
 echo "[done] all mask stages finished"
