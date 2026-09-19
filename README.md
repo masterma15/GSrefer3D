@@ -359,23 +359,34 @@ python bridge/inject_gaussian_seg.py --obj-glob training_data/data2_*
 
 SIBR: magenta = selected ∩ OBB · lime = selected \ OBB · cyan = hand OBB · optional blue = seed.
 
-**SIBR orbit** (voted Gaussians vs hand OBB — these are the 3D result, not the old fused-point / seed-marker GIFs):
+**SIBR orbit** (voted Gaussians vs hand OBB — these are the 3D result, not the old fused-point / seed-marker GIFs). GitHub will not reliably show large GIFs inside Markdown tables, so they are linked as images below. Files: [`demo/shaver.gif`](demo/shaver.gif) · [`rabbit.gif`](demo/rabbit.gif) · [`golden_retriever.gif`](demo/golden_retriever.gif) · [`umbrella.gif`](demo/umbrella.gif) · [`cake.gif`](demo/cake.gif) · [`hair_clip.gif`](demo/hair_clip.gif) · [`double_sided_tape.gif`](demo/double_sided_tape.gif).
 
-| Electric shaver | Brown rabbit |
-|-----------------|--------------|
-| ![shaver](demo/shaver.gif) | ![rabbit](demo/rabbit.gif) |
+**Electric shaver** · **Brown rabbit**
 
-| Golden retriever | Umbrella |
-|------------------|----------|
-| ![golden retriever](demo/golden_retriever.gif) | ![umbrella](demo/umbrella.gif) |
+<p>
+<img src="demo/shaver.gif" alt="electric shaver SIBR orbit" width="49%" />
+<img src="demo/rabbit.gif" alt="brown rabbit SIBR orbit" width="49%" />
+</p>
 
-| Toy cake | Hair clip |
-|----------|-----------|
-| ![cake](demo/cake.gif) | ![hair clip](demo/hair_clip.gif) |
+**Golden retriever** · **Umbrella**
+
+<p>
+<img src="demo/golden_retriever.gif" alt="golden retriever SIBR orbit" width="49%" />
+<img src="demo/umbrella.gif" alt="umbrella SIBR orbit" width="49%" />
+</p>
+
+**Toy cake** · **Hair clip**
+
+<p>
+<img src="demo/cake.gif" alt="toy cake SIBR orbit" width="49%" />
+<img src="demo/hair_clip.gif" alt="hair clip SIBR orbit" width="49%" />
+</p>
 
 **Hold-out** (not in 469 SFT / not in the 10-object 3D summary):
 
-![double-sided tape](demo/double_sided_tape.gif)
+<p>
+<img src="demo/double_sided_tape.gif" alt="double-sided tape SIBR orbit" width="49%" />
+</p>
 
 ---
 
