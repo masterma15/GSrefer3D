@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Export RGB + mask + point overlays for manual QA (one PNG per view).
+"""导出 RGB + mask + 点叠加图，供人工 QA（每视角一张 PNG）。
 
-Reads ``question.json`` under each ``training_data/data2_*`` dir (after mask, before
-or after refine). Writes ``<out>/review/view_XXX.png``.
+读取各 ``training_data/data2_*`` 目录下的 ``question.json``（mask 之后，refine
+之前或之后均可）。写出 ``<out>/review/view_XXX.png``。
 
-Example::
+示例::
 
     python bridge/make_mask_review.py --out training_data/data2_medicine_bottle
     python bridge/make_mask_review.py --inputs training_data/data2_bowl training_data/data2_shaver

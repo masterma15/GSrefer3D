@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
-"""Export data2_* packs into RoboRefer ``spatialdataset`` JSON (no 357GB RefSpatial download).
+"""把 data2_* 数据包导出为 RoboRefer ``spatialdataset`` JSON（无需下载 357GB 的 RefSpatial）。
 
-Reads each ``training_data/data2_<object>/question.json`` (or ``projections.json``)
-and writes a merged training tree::
+读取各 ``training_data/data2_<object>/question.json``（或 ``projections.json``），
+并写出合并后的训练目录树::
 
     <out>/
-      image/          # RGB copies (unique filenames)
-      depth/          # depth PNG from --views-root (optional)
+      image/          # RGB 副本（文件名去重）
+      depth/          # 来自 --views-root 的深度 PNG（可选）
       location_point.json
 
-Each JSON record matches ``LazySupervisedSpatialDataset`` expectations::
+每条 JSON 记录符合 ``LazySupervisedSpatialDataset`` 的期望::
 
     {
       "image": "bowl_view_012.png",
-      "depth": "bowl_view_012.png",   # omit field for RGB-only
+      "depth": "bowl_view_012.png",   # RGB-only 时省略该字段
       "conversations": [
         {"from": "human", "value": "<prompt> <suffix>"},
         {"from": "gpt",   "value": "[(0.76, 0.57)]"}
       ]
     }
 
-Training code injects ``<image>`` / ``<depth>`` tokens; do not add them here.
+训练代码会注入 ``<image>`` / ``<depth>`` token；此处不要自行添加。
 
-Example (Windows envGS)::
+示例（Windows envGS）::
 
     python bridge/export_spatial_train.py ^
         --inputs training_data/data2_* ^
         --views-root 3DGS/test2 ^
         --out training_data/data2_sft
 
-Registered in ``RoboRefer-main/llava/data/datasets_mixture.py`` as ``data2_location``
-(folder on disk remains ``training_data/data2_sft/``). Train with::
+在 ``RoboRefer-main/llava/data/datasets_mixture.py`` 中注册为 ``data2_location``
+（磁盘目录仍为 ``training_data/data2_sft/``）。训练时使用::
 
     --data_mixture data2_location
 """
@@ -43,14 +43,14 @@ import shutil
 import sys
 from pathlib import Path
 
-# Align with RefSpatial-Expand-Bench Location + RoboRefer API (use_api.py).
+# 与 RefSpatial-Expand-Bench Location + RoboRefer API（use_api.py）对齐。
 DEFAULT_SUFFIX = (
     "Your answer should be formatted as a list of tuples, i.e. [(x1, y1)], "
     "where each tuple contains the x and y coordinates of a point satisfying the conditions above. "
     "The coordinates should be between 0 and 1, indicating the normalized pixel locations of the points in the image."
 )
 
-# Per-object RoboRefer prompts (match e2e run_manifest.json)
+# 各物体的 RoboRefer prompt（与 e2e 的 run_manifest.json 一致）
 OBJECT_PROMPTS: dict[str, str] = {
     "data2_bowl": "Please point to the gold-colored bowl on the desk.",
     "data2_bracelet": "Please point to the white beaded bracelet on the desk.",
@@ -142,7 +142,7 @@ def export(args: argparse.Namespace) -> None:
 
         prompt_default = args.prompt or ""
         if not prompt_default:
-            # try prompt.txt in parent runs — not required
+            # 尝试父级 runs 里的 prompt.txt — 非必须
             pass
 
         for rec in records:
@@ -161,7 +161,7 @@ def export(args: argparse.Namespace) -> None:
                 print(f"[skip] {src_dir.name} view_{view_id}: no coordinates")
                 continue
 
-            # Always Bench/API suffix (ignore per-record suffix in question.json).
+            # 始终用 Bench/API suffix（忽略 question.json 里的逐条 suffix）。
             human = f"{prompt.rstrip()} {DEFAULT_SUFFIX}".strip()
 
             rgb_rel = rec.get("rgb_path", f"image/view_{view_id}.png")

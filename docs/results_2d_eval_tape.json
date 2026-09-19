@@ -1,0 +1,32 @@
+[
+  {
+    "object": "胶带 hold-out",
+    "group": "Base",
+    "run_id": "20260519_000313_6c883d56",
+    "slug": "tape",
+    "gt_source": "training_data/data2_tape/question.json",
+    "note": "hold-out mask centroid; not in data2_sft",
+    "n": 46,
+    "median_l2": 0.0214,
+    "mean_l2": 0.1666,
+    "pct_lt_0.05": 56.5,
+    "pct_lt_0.10": 63.0,
+    "n_gt_views": 46,
+    "support": 15
+  },
+  {
+    "object": "胶带 hold-out",
+    "group": "LoRA",
+    "run_id": "20260519_132142_6c883d56",
+    "slug": "tape",
+    "gt_source": "training_data/data2_tape/question.json",
+    "note": "hold-out mask centroid; not in data2_sft",
+    "n": 46,
+    "median_l2": 0.0132,
+    "mean_l2": 0.1528,
+    "pct_lt_0.05": 63.0,
+    "pct_lt_0.10": 65.2,
+    "n_gt_views": 46,
+    "support": 17
+  }
+]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare e2e predictions.json against training GT in location_point.json (2D L2)."""
+"""将 e2e 的 predictions.json 与 location_point.json 中的训练 GT 做 2D L2 对比。"""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ import math
 import re
 from pathlib import Path
 
-# slug in location_point.json image names
+# location_point.json 图像文件名中的 slug
 OBJECT_SLUGS: dict[str, str] = {
     "剃须刀": "shaver",
     "棕兔": "rabbit",
@@ -34,12 +34,25 @@ def load_gt(gt_path: Path, slug: str) -> dict[int, tuple[float, float]]:
             continue
         vid = int(m.group(2))
         ans = rec["conversations"][-1]["value"]
-        # [(0.7214, 0.5814)]
+        # 坐标格式：[(0.7214, 0.5814)]
         inner = ans.strip().removeprefix("[").removesuffix("]").strip()
         if inner.startswith("("):
             parts = inner.strip("()").split(",")
             nx, ny = float(parts[0]), float(parts[1])
             out[vid] = (nx, ny)
+    return out
+
+
+def load_gt_question(path: Path) -> dict[int, tuple[float, float]]:
+    """Mask-centroid GT from gen_training_data question.json (hold-out, not SFT)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    out: dict[int, tuple[float, float]] = {}
+    for rec in data:
+        ans = rec.get("answer")
+        if not ans:
+            continue
+        pt = ans[0]
+        out[int(rec["view_id"])] = (float(pt[0]), float(pt[1]))
     return out
 
 
@@ -82,10 +95,20 @@ def main() -> None:
     ap.add_argument("--runs-root", type=Path, default=Path("3DGS/test2/runs"))
     ap.add_argument("--runs", type=str, nargs="*", help="run_id=物体:组别 entries via JSON file instead")
     ap.add_argument("--table-json", type=Path, help="JSON list of {object, group, run_id}")
+    ap.add_argument(
+        "--tape-only",
+        action="store_true",
+        help="Hold-out tape only: GT from --tape-question, not data2_sft",
+    )
+    ap.add_argument(
+        "--tape-question",
+        type=Path,
+        default=Path("training_data/data2_tape/question.json"),
+    )
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
-    # Default table from EXPERIMENT_DATA_INDEX §2.3
+    # 默认对照表，来自 EXPERIMENT_DATA_INDEX §2.3
     rows = [
         ("剃须刀", "Base", "20260519_170540_4c3b9a32"),
         ("剃须刀", "LoRA", "20260519_143457_4c3b9a32"),
@@ -107,19 +130,34 @@ def main() -> None:
         ("手链", "LoRA", "20260519_163546_cb2e562f"),
         ("发夹", "Base", "20260519_183039_65bf02a5"),
         ("发夹", "LoRA", "20260519_164312_65bf02a5"),
-        ("胶带 hold-out", "Base", "20260519_000313_6c883d56"),
-        ("胶带 hold-out", "LoRA", "20260519_132142_6c883d56"),
     ]
+    if args.tape_only:
+        rows = [
+            ("胶带 hold-out", "Base", "20260519_000313_6c883d56"),
+            ("胶带 hold-out", "LoRA", "20260519_132142_6c883d56"),
+        ]
     if args.table_json and args.table_json.is_file():
         rows = [(r["object"], r["group"], r["run_id"]) for r in json.loads(args.table_json.read_text(encoding="utf-8"))]
 
     gt_cache: dict[str, dict[int, tuple[float, float]]] = {}
+    tape_gt: dict[int, tuple[float, float]] | None = None
     results = []
     for obj, group, run_id in rows:
         slug = OBJECT_SLUGS.get(obj.replace(" hold-out", ""))
         run_dir = args.runs_root / run_id
         row = {"object": obj, "group": group, "run_id": run_id, "slug": slug}
-        if slug is None:
+        if obj.startswith("胶带"):
+            if tape_gt is None:
+                if not args.tape_question.is_file():
+                    row.update({"n_gt_views": 0, "note": "无 question.json（hold-out）"})
+                    results.append(row)
+                    continue
+                tape_gt = load_gt_question(args.tape_question)
+            gt = tape_gt
+            row["slug"] = "tape"
+            row["gt_source"] = str(args.tape_question).replace("\\", "/")
+            row["note"] = "hold-out mask centroid; not in data2_sft"
+        elif slug is None:
             row.update({"n_gt_views": 0, "note": "无 SFT GT（hold-out）"})
             if run_dir.is_dir():
                 fused = run_dir / "fused.json"
@@ -128,9 +166,10 @@ def main() -> None:
                     row["support"] = f.get("support")
             results.append(row)
             continue
-        if slug not in gt_cache:
-            gt_cache[slug] = load_gt(args.gt, slug)
-        gt = gt_cache[slug]
+        else:
+            if slug not in gt_cache:
+                gt_cache[slug] = load_gt(args.gt, slug)
+            gt = gt_cache[slug]
         pred = load_pred(run_dir) if run_dir.is_dir() else {}
         m = metrics(gt, pred)
         row.update(m)

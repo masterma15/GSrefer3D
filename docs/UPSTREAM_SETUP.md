@@ -1,6 +1,6 @@
 # 上游依赖安装（本地克隆，不进 Git）
 
-本仓库采用 **薄仓库（thin repo）** 策略：Git 只保留 `bridge/`、补丁、`3DGS/render.py`，以及 `docs/` 下 **3 个公开文件**（本文件 + 两份实验 JSON）。简历、飞书索引、`results_table.md` 等留在本地，不进 GitHub。
+完整逐步安装与一条命令跑通见仓库根目录 [README.md · Quick start](../README.md#quick-start)。本页只列目录布局和「不进 Git」的大文件从哪拿。
 
 ## 推荐目录布局
 
@@ -72,6 +72,8 @@ cd RoboRefer-main
 | RoboRefer-2B-SFT | `RoboRefer-2B-SFT/` |
 | Depth Anything V2 ViT-L | `weights/depth_anything_v2_vitl.pth` |
 | data2 LoRA（可选） | `RoboRefer-2B-SFT/data2_lora/` → merge 为 `RoboRefer-2B-SFT-data2-merged/` |
+| SAM 2.1 Hiera-L | `weights/sam2.1_hiera_large.pt` |
+| Grounding DINO Swin-T | `weights/groundingdino_swint_ogc.pth` |
 
 API：
 
@@ -82,16 +84,9 @@ python api.py --port 25547 \
   --vlm_model_path ../../RoboRefer-2B-SFT-data2-merged
 ```
 
-## 3. 端到端（本仓库 bridge）
+## 3. 端到端
 
-```bash
-# Windows envGS + RoboRefer API（WSL 或 SSH 隧道）
-python bridge/run_bridge_e2e.py \
-  --model-path 3DGS/gaussian-splatting/output/data2 \
-  --custom-views-out 3DGS/test2 \
-  --prompt "Please point to ..." \
-  --snap --skip-render --url http://127.0.0.1:25547
-```
+见 [README Quick start §5](../README.md#5-run-the-pipeline-windows-envgs)。不要再用已删除的 `bridge/pipeline.py`。
 
 
 ## 4. RefSpatial-Expand-Bench（可选）

@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""One entry: filter (3DGS ray) -> mask (DINO+SAM2) -> review PNGs for manual QA.
+"""旧的 data2 查表批处理：过滤 -> mask -> review。
 
-Windows (envGS)::
+用户入口已改到 ``run_bridge_e2e.py``（``--name`` / ``--object`` / ``--prompt``）。
+本文件只服务已登记在 OBJECT_SPECS 里的物体，不要当新物体的入口。
+
+Windows（envGS）::
 
     python bridge/run_training_prepare.py --object data2_bracelet --stage all
-
-Mask needs WSL roborefer + CUDA; use ``--use-wsl`` (default on win32)::
-
-    python bridge/run_training_prepare.py --object data2_bracelet --stage all --use-wsl
-
-Stages: filter | mask | review | all
 """
 from __future__ import annotations
 
@@ -32,6 +29,7 @@ FUSED_RUNS: dict[str, str] = {
     "data2_cookie": "20260516_113618_e51c780a",
     "data2_bowl": "20260516_114029_8d83a715",
     "data2_toy_cake": "20260516_114443_7dd80c38",
+    "data2_tape": "20260519_132142_6c883d56",
 }
 
 MANUAL_REJECT: dict[str, list[str]] = {
@@ -79,12 +77,16 @@ OBJECT_SPECS: dict[str, dict[str, str]] = {
     },
     "data2_toy_cake": {
         "prompt": "Please point to the toy cake held by the brown plush rabbit.",
-        # DINO only: avoid "rabbit/plush" — triggers whole-doll boxes; target small cake
+        # 仅给 DINO：避免 "rabbit/plush" — 会框到整只玩偶；目标是小蛋糕
         "object": "small decorative toy cake",
     },
     "data2_umbrella": {
         "prompt": "Please point to the black and red umbrella on the desk.",
         "object": "black and red folded umbrella",
+    },
+    "data2_tape": {
+        "prompt": "Please point to the roll of clear double-sided adhesive tape on the desk.",
+        "object": "roll of clear double-sided tape",
     },
 }
 
@@ -119,7 +121,7 @@ def stage_filter(obj: str, args: argparse.Namespace) -> None:
         str(args.ply),
     ]
     if args.filter_preset:
-        pass  # per-object preset in apply_filter_batch.RAY_FILTER_OVERRIDES
+        pass  # 每物体预设在 apply_filter_batch.RAY_FILTER_OVERRIDES 里
     _run(cmd)
 
 
@@ -144,8 +146,6 @@ def _mask_cmd(obj: str, args: argparse.Namespace, *, wsl: bool) -> list[str]:
         script,
         "--stage",
         "mask",
-        "--mask-mode",
-        "grounding",
         "--out",
         out,
         "--prompt",

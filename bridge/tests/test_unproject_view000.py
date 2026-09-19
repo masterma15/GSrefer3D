@@ -1,17 +1,16 @@
-"""Regression test for bridge/unproject.py using 3DGS/test1/view_000.
+"""针对 bridge/unproject.py 的回归测试，使用 3DGS/test1/view_000。
 
-Pins the numbers that were end-to-end verified on 2026-05-08:
+锁定 2026-05-08 端到端验证过的数值：
 
-  RoboRefer (RGB-D mode) on view_000 returned (nx, ny) = (0.458, 0.298).
-  -> pixel (350, 169), expected_invdepth = 0.4641861617565155
+  RoboRefer（RGB-D 模式）在 view_000 上返回 (nx, ny) = (0.458, 0.298)。
+  -> 像素 (350, 169)，expected_invdepth = 0.4641861617565155
   -> z_cam = 2.154308082377821
   -> P_world = [-1.61395605, 0.70258973, -0.19355955]
 
-  nearest-neighbor distance to point_cloud.ply: 0.2545 (scene diag 189.3)
+  到 point_cloud.ply 的最近邻距离：0.2545（场景对角线 189.3）
 
-If the rendering convention, camera JSON schema, or depth semantics ever
-change without updating this test, the regression fails loudly. Do NOT
-silently bump tolerances; fix the upstream change instead.
+若渲染约定、相机 JSON 结构或深度语义发生变化而本测试未同步更新，
+回归会立刻失败。不要悄悄放宽容差；应修正上游改动。
 """
 from __future__ import annotations
 
@@ -36,9 +35,9 @@ EXPECTED_INVDEPTH = 0.4641861617565155
 EXPECTED_Z_CAM = 2.154308082377821
 EXPECTED_P_WORLD = np.array([0.61385237, 0.76297073, -0.04477087])
 
-# Regression guard on NN distance (point_cloud.ply, 1.37M gaussians).
-# Observed 0.2545 in a scene with diagonal ~189. Keep a generous headroom so
-# a minor rendering tweak doesn't false-alarm, but a convention flip will.
+# 最近邻距离的回归守卫（point_cloud.ply，137 万个高斯）。
+# 场景对角线约 189 时观测值为 0.2545。留出较宽松余量，
+# 避免微小渲染调整误报，但约定翻转仍会触发。
 NN_DISTANCE_MAX = 0.6
 
 
@@ -57,7 +56,7 @@ def test_intrinsics_are_derived_from_fov(unp: Unprojector) -> None:
     fx, fy, cx, cy = unp.view.intrinsics
     assert cx == unp.view.width / 2.0
     assert cy == unp.view.height / 2.0
-    # sanity bounds: FoV ~72deg/57deg -> fx,fy well inside [W/4, W]
+    # 合理性边界：FoV 约 72deg/57deg → fx, fy 应落在 [W/4, W] 内
     assert unp.view.width / 4 < fx < unp.view.width
     assert unp.view.height / 4 < fy < unp.view.height
 
@@ -81,8 +80,8 @@ def test_end_to_end_world_point_matches_roborefer_sample(unp: Unprojector) -> No
 
 
 def test_world_point_lies_in_scene_bbox(unp: Unprojector) -> None:
-    """Guards against sign flips in R_w2c.T @ P_cam + C."""
-    # Observed scene bbox from point_cloud.ply (iteration_30000):
+    """防止 R_w2c.T @ P_cam + C 发生符号翻转。"""
+    # 来自 point_cloud.ply（iteration_30000）的观测场景包围盒：
     bbox_min = np.array([-60.57, -30.57, -65.03])
     bbox_max = np.array([80.20, 26.52, 47.92])
     _, p_world, _ = unp.normalized_to_world(NX, NY, EXPECTED_Z_CAM)
@@ -90,7 +89,7 @@ def test_world_point_lies_in_scene_bbox(unp: Unprojector) -> None:
     assert np.all(p_world <= bbox_max)
 
 
-# --- Optional: point-cloud NN distance check (only if plyfile + PLY present) ---
+# --- 可选：点云最近邻距离检查（仅当 plyfile 与 PLY 存在时） ---
 
 PLY_CANDIDATES = sorted(
     (REPO / "3DGS" / "gaussian-splatting" / "output").glob(
@@ -114,6 +113,6 @@ def test_nearest_gaussian_distance_is_small(unp: Unprojector) -> None:
 
     result = unp.normalized_with_depth_raw(NX, NY, DEPTH_NPY)
     p = result["P_world"]
-    # brute force is fine for a one-off regression (~1.4M points, a few seconds)
+    # 一次性回归用暴力搜索即可（约 140 万点，数秒）
     d = float(np.linalg.norm(xyz - p, axis=1).min())
     assert d < NN_DISTANCE_MAX, f"NN distance {d:.4f} exceeds regression ceiling {NN_DISTANCE_MAX}"

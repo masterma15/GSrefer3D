@@ -1,4 +1,4 @@
-"""Tests for bridge/ray_unproject.py depth pick logic."""
+"""bridge/ray_unproject.py 深度选取逻辑的测试。"""
 from __future__ import annotations
 
 import sys
@@ -32,7 +32,7 @@ def test_p75_max_z0_pushes_deeper_not_shallower(monkeypatch) -> None:
     )
     unp = Unprojector(view)
     z0 = 2.0
-  # Gaussians mostly behind z0 in camera z (deeper = larger z_cam)
+  # 高斯大多在相机 z 上位于 z0 后方（更远 = 更大的 z_cam）
     xyz = np.array([
         [0.0, 0.0, 2.5],
         [0.0, 0.0, 2.8],

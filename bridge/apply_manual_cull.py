@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove rejected views from question.json + mask/review PNGs (manual QA cull)."""
+"""从 question.json 以及 mask/review PNG 中删除被拒视角（人工 QA 剔除）。"""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# From 人工复筛.txt (view_id zero-padded to 3 digits)
+# 来自 人工复筛.txt（view_id 零填充到 3 位）
 DEFAULT_CULLS: dict[str, list[str]] = {
     "data2_bowl": [],
     "data2_bracelet": ["007", "032", "044", "070"],

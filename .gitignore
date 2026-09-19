@@ -1,4 +1,4 @@
-# Demo: only pipeline.png is in Git (README figure); Mermaid sources stay local
+# Demo: pipeline / teasers / SIBR orbit GIFs in Git; Mermaid sources stay local
 demo/*
 !demo/README.md
 !demo/pipeline.png
@@ -9,14 +9,14 @@ demo/*
 !demo/teaser_base_lora_golden_retriever.png
 !demo/teaser_train_data.png
 !demo/teaser_depth_ablation.png
-!demo/teaser_3d_electric_shaver.gif
-!demo/teaser_3d_brown_rabbit.gif
-!demo/teaser_3d_electric_shaver.gif.orig
-!demo/teaser_3d_brown_rabbit.gif.orig
-!demo/teaser_obb_lora_in_out.png
-!demo/teaser_obb_miss_offset.png
+!demo/teaser_gaussian_seg.png
 !demo/shaver.gif
-!demo/tap.gif
+!demo/rabbit.gif
+!demo/golden_retriever.gif
+!demo/umbrella.gif
+!demo/cake.gif
+!demo/hair_clip.gif
+!demo/double_sided_tape.gif
 
 # Local private docs (resume, feishu, indexes, pipeline) — not on GitHub
 docs/*
@@ -24,9 +24,9 @@ docs/*
 !docs/RESULTS.md
 !docs/depth_compare_batch.json
 !docs/results_2d_eval.json
+!docs/results_2d_eval_tape.json
+!docs/results_gaussian_seg.json
 !docs/bbox_data2.json
-!docs/results_3d_obb_hit.json
-!docs/results_3d_obb_offset.json
 !docs/bbox_labels/
 !docs/bbox_labels/**
 docs/bbox_labels/*.bin

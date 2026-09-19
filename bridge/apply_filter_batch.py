@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply per-object view filtering: manual reject lists (large) or ray filter (small)."""
+"""按物体做视角过滤：大物体用人工拒帧列表，小物体用射线过滤。"""
 from __future__ import annotations
 
 import argparse
@@ -11,14 +11,14 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 
-# Manual rejects from user (large objects, --skip-ray-filter + explicit view ids)
+# 人工拒帧（大物体：跳过射线过滤，按视角 id 剔除）
 MANUAL_REJECT: dict[str, list[str]] = {
     "data2_rabbit": ["024", "045"],
     "data2_golden_retriever": ["025", "051"],
     "data2_umbrella": ["022", "025", "051"],
 }
 
-# Per-object ray-filter overrides (appended to filter_views_3dgs.py CLI).
+# 按物体覆盖射线过滤参数（追加到 filter_views_3dgs.py 命令行）。
 RAY_FILTER_OVERRIDES: dict[str, list[str]] = {
     "data2_medicine_bottle": ["--filter-preset", "relaxed_plus"],
 }
@@ -34,6 +34,7 @@ FUSED_RUNS: dict[str, str] = {
     "data2_cookie": "20260516_113618_e51c780a",
     "data2_bowl": "20260516_114029_8d83a715",
     "data2_toy_cake": "20260516_114443_7dd80c38",
+    "data2_tape": "20260519_132142_6c883d56",
 }
 
 

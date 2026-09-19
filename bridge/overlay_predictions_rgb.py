@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Draw RoboRefer normalized (nx, ny) on each rendered RGB (same convention as fuse).
+"""在每张渲染 RGB 上绘制 RoboRefer 归一化 (nx, ny)（约定与融合一致）。
 
-Uses ``CameraView`` + ``Unprojector.normalized_to_pixel`` so circles sit on the same
-integer pixel used for ``depth_raw`` sampling in ``fuse_multiview.gather_candidates``.
+使用 ``CameraView`` + ``Unprojector.normalized_to_pixel``，使圆点落在与
+``fuse_multiview.gather_candidates`` 采样 ``depth_raw`` 相同的整数像素上。
 
-Optional ``--fused`` tints inlier candidates green and others orange (matched by
-``view_id`` + order in ``predictions`` points list).
+可选 ``--fused`` 将内点候选标绿、其余标橙（按 ``view_id`` +
+``predictions`` 点列表顺序匹配）。
 
-Requires: pip install pillow
+依赖：pip install pillow
 
-Example::
+示例::
 
   python bridge/overlay_predictions_rgb.py \\
     --root E:/GSrefer3D/3DGS/test2 \\

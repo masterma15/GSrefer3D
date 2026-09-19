@@ -1,27 +1,14 @@
 #!/usr/bin/env python3
-"""One-shot bridge orchestration (B–F): render → RoboRefer → fuse → marker → overlays → model copy + inject.
+"""一条命令：3DGS 模型 + 提示词 → 物体微调包 + 视锥投票点云 + SIBR。
 
-Prerequisite (manual): start RoboRefer ``api.py`` in WSL/Linux; this script only probes ``--url`` before batch query.
+跨环境：本进程（envGS）只 subprocess / WSL，不 import 3DGS raster 或 SAM。
+``P_world`` / ``fused.json`` 只作 mask 种子，3D 结果是 ``gaussian_seg.json``。
 
-Artifacts for each run live under::
+产物::
 
-    <custom-views-out>/runs/<run_id>/{predictions.json,fused.json,marker.ply,overlays_rgb/,run_manifest.json,prompt.txt}
-
-A full copy of the trained model (for SIBR) is written to::
-
-    <model-path.parent>/<model-path.name>_runs/<run_id>/
-
-with markers injected into ``point_cloud/iteration_35000/point_cloud.ply`` (or ``iteration_36000`` if snap base would collide).
-
-Run from repo root (or pass absolute paths), in the same conda env as ``render.py`` / ``fuse`` (e.g. envGS)::
-
-  cd E:/GSrefer3D
-  python bridge/run_bridge_e2e.py \\
-    --model-path 3DGS/gaussian-splatting/output/data2 \\
-    --custom-views-out 3DGS/test2 \\
-    --prompt "Please point to the brown stuffed rabbit." \\
-    --snap \\
-    --ply 3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply
+    <out-dir>/                  question.json, mask/, gaussian_seg.json, fused.json
+    <views>/runs/<run_id>/      predictions.json, fused.json, overlays, run_manifest.json
+    <model>/point_cloud/iteration_seg_<name>/
 """
 from __future__ import annotations
 
@@ -29,6 +16,7 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -39,9 +27,21 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 BRIDGE = REPO / "bridge"
 
-# Fixed per user preference (SIBR); if snap ply lives here too, use _INJECT_COLLISION_FALLBACK.
-_INJECT_ITER_DIR = "iteration_35000"
-_INJECT_COLLISION_FALLBACK = "iteration_36000"
+if str(BRIDGE) not in sys.path:
+    sys.path.insert(0, str(BRIDGE))
+
+from e2e_stages import (  # noqa: E402
+    STAGES,
+    guess_ply,
+    preflight_api,
+    preflight_wsl,
+    require_views,
+    run_mask_local,
+    run_mask_wsl,
+    stage_fuse,
+    stage_render,
+)
+from frustum_segment import OBJ_DIR_TO_BBOX_KEY  # noqa: E402
 
 
 def _abs(p: Path) -> Path:
@@ -63,30 +63,14 @@ def _default_run_id(prompt: str, run_name: str | None) -> str:
     return f"{ts}_{h}"
 
 
-def _allocate_run_paths(
-    views_root: Path,
-    model_path: Path,
-    base_run_id: str,
-) -> tuple[str, Path, Path]:
+def _allocate_run_dir(views_root: Path, base_run_id: str) -> tuple[str, Path]:
     n = 0
     while True:
         rid = base_run_id if n == 0 else f"{base_run_id}_{n}"
         run_dir = views_root / "runs" / rid
-        model_copy = model_path.parent / f"{model_path.name}_runs" / rid
-        if not run_dir.exists() and not model_copy.exists():
-            return rid, run_dir, model_copy
+        if not run_dir.exists():
+            return rid, run_dir
         n += 1
-
-
-def _probe_api(url: str, timeout: float = 5.0) -> bool:
-    try:
-        import requests
-
-        u = url.rstrip("/")
-        requests.get(u, timeout=timeout)
-        return True
-    except Exception:
-        return False
 
 
 def _subprocess_rc(cmd: list[str], *, cwd: Path | None = None) -> None:
@@ -96,7 +80,97 @@ def _subprocess_rc(cmd: list[str], *, cwd: Path | None = None) -> None:
         raise SystemExit(f"command failed with exit code {rc}")
 
 
-def _stage_roborefer_client(
+def _should_run(stage: str, from_stage: str) -> bool:
+    return STAGES.index(stage) >= STAGES.index(from_stage)
+
+
+def _count_query_ok(predictions_path: Path) -> tuple[int, int]:
+    data = json.loads(predictions_path.read_text(encoding="utf-8"))
+    views = data.get("views") or []
+    ok = sum(1 for v in views if v.get("parse_ok"))
+    return ok, len(views)
+
+
+def _json_len(path: Path) -> int:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, list):
+        return len(data)
+    return 0
+
+
+def _resolve_bbox_key(name: str, bbox_key: str | None) -> str | None:
+    if bbox_key:
+        return bbox_key
+    return OBJ_DIR_TO_BBOX_KEY.get(name)
+
+
+def _bbox_exists(bbox_path: Path, key: str | None) -> bool:
+    if not key or not bbox_path.is_file():
+        return False
+    objects = json.loads(bbox_path.read_text(encoding="utf-8"))
+    spec = objects.get(key) if isinstance(objects, dict) else None
+    if spec is None and isinstance(objects, dict):
+        spec = (objects.get("objects") or {}).get(key)
+    return isinstance(spec, dict) and "obb" in spec
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _resolve_run_dir(
+    *,
+    views_root: Path,
+    out_dir: Path,
+    prompt: str,
+    run_name: str | None,
+    run_dir_arg: Path | None,
+    from_stage: str,
+) -> tuple[str, Path]:
+    if run_dir_arg is not None:
+        run_dir = _abs(run_dir_arg)
+        return run_dir.name, run_dir
+
+    pointer = out_dir / "e2e_manifest.json"
+    if from_stage in ("fuse", "filter", "mask", "vote") and pointer.is_file():
+        meta = json.loads(pointer.read_text(encoding="utf-8"))
+        hinted = Path(meta.get("run_dir") or "")
+        if hinted.is_dir():
+            return str(meta.get("run_id") or hinted.name), hinted
+
+    if run_name:
+        cand = views_root / "runs" / _safe_run_name(run_name)
+        if cand.is_dir() and from_stage != "render":
+            return cand.name, cand
+
+    rid, run_dir = _allocate_run_dir(views_root, _default_run_id(prompt, run_name))
+    return rid, run_dir
+
+
+def _resolve_fused(out_dir: Path, run_dir: Path) -> Path:
+    for p in (out_dir / "fused.json", run_dir / "fused.json"):
+        if p.is_file():
+            return p
+    raise SystemExit(f"fused.json not found in {out_dir} or {run_dir}")
+
+
+def _clean_debug(run_dir: Path, out_dir: Path) -> None:
+    for d in (
+        run_dir / "overlays_rgb",
+        out_dir / "review",
+        out_dir / "filter_overlays",
+    ):
+        if d.is_dir():
+            shutil.rmtree(d)
+            print(f"[clean] removed {d}")
+    rejected = out_dir / "projections_rejected.json"
+    if rejected.is_file():
+        rejected.unlink()
+        print(f"[clean] removed {rejected}")
+
+
+def _stage_query(
     *,
     views_root: Path,
     predictions_out: Path,
@@ -105,11 +179,6 @@ def _stage_roborefer_client(
     retry: int,
     no_depth: bool,
     views: list[int] | None,
-    visibility_check: bool,
-    visibility_permissive: bool,
-    visibility_strict: bool,
-    visibility_base_url: str | None,
-    visibility_model: str | None,
 ) -> None:
     cmd: list[str] = [
         sys.executable,
@@ -129,26 +198,14 @@ def _stage_roborefer_client(
         cmd.append("--no-depth")
     if views:
         cmd.extend(["--views", *[str(v) for v in views]])
-    if visibility_check:
-        cmd.append("--visibility-check")
-    if visibility_permissive:
-        cmd.append("--visibility-permissive")
-    if visibility_strict:
-        cmd.append("--visibility-strict")
-    if visibility_base_url:
-        cmd.extend(["--visibility-base-url", visibility_base_url])
-    if visibility_model:
-        cmd.extend(["--visibility-model", visibility_model])
     _subprocess_rc(cmd, cwd=REPO)
+    ok, n = _count_query_ok(predictions_out)
+    print(f"[e2e] query ok={ok}/{n}")
+    if ok == 0:
+        raise SystemExit("query: every view failed")
 
 
-def _stage_overlay(
-    *,
-    views_root: Path,
-    predictions_path: Path,
-    fused_path: Path,
-    out_dir: Path,
-) -> None:
+def _stage_overlay(views_root: Path, predictions_path: Path, fused_path: Path, out_dir: Path) -> None:
     cmd = [
         sys.executable,
         str(BRIDGE / "overlay_predictions_rgb.py"),
@@ -164,67 +221,43 @@ def _stage_overlay(
     _subprocess_rc(cmd, cwd=REPO)
 
 
-def _stage_inject(
-    *,
-    base_ply_in_copy: Path,
-    fused_json: Path,
-    out_iteration_dir: Path,
-    all_candidates: bool,
-    extra_args: list[str] | None = None,
-) -> None:
-    cmd = [
-        sys.executable,
-        str(BRIDGE / "inject_gaussian_markers.py"),
-        "--ply",
-        str(base_ply_in_copy),
-        "--fused-json",
-        str(fused_json),
-        "--out-iteration-dir",
-        str(out_iteration_dir),
-    ]
-    if all_candidates:
-        cmd.append("--all-candidates")
-    if extra_args:
-        cmd.extend(extra_args)
-    _subprocess_rc(cmd, cwd=REPO)
-
-
-def _print_sibr_footer(*, model_copy_dir: Path, inject_iteration_folder: str) -> None:
-    """Print copy-paste PowerShell lines for SIBR using paths from this run."""
-    viewers_bin = (REPO / "3DGS" / "gaussian-splatting" / "viewers" / "bin").resolve()
-    model_m = model_copy_dir.resolve()
-    vb = str(viewers_bin)
-    mm = str(model_m)
-    iter_suffix = inject_iteration_folder.removeprefix("iteration_")
-    sep = "-" * 68
-    print(f"\n{sep}")
-    print("下一步：用 SIBR 查看刚生成的模型副本（PowerShell 中复制执行以下两行）")
-    print(sep)
-    print(f'Set-Location "{vb}"')
-    print(f'.\\SIBR_gaussianViewer_app.exe -m "{mm}"')
-    print(
-        f"\n在 SIBR 界面中将 point_cloud 的 iteration 选为 {iter_suffix} "
-        f"（目录名 {inject_iteration_folder}），即可看到注入的红色标记点。\n"
-    )
-
-
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        description="Bridge B–F in one command: render, RoboRefer batch, fuse, marker PLY, overlays, "
-        "optional full model copy + marker inject for SIBR.",
+        description="3DGS model + prompt → referring Gaussians + per-object SFT pack.",
     )
     ap.add_argument("--model-path", type=Path, required=True, help="3DGS trained model dir (same as render.py -m)")
     ap.add_argument(
         "--custom-views-out",
         type=Path,
         default=Path("3DGS/test2"),
-        help="Multi-view root (contains rgb/, camera_params/, depth_raw/ …).",
+        help="Multi-view root (rgb/, camera_params/, depth_raw/). Overridable; default 3DGS/test2.",
     )
-    ap.add_argument("--prompt", type=str, required=True)
+    ap.add_argument("--prompt", type=str, required=True, help="RoboRefer instruction")
+    ap.add_argument("--object", type=str, required=True, help="Grounding DINO short caption")
+    ap.add_argument("--name", type=str, required=True, help="Object pack slug, e.g. data2_shaver")
+    ap.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Object pack dir (default: training_data/<name>)",
+    )
     ap.add_argument("--url", type=str, default="http://127.0.0.1:25547")
-    ap.add_argument("--run-name", type=str, default=None, help="If set, used as run_id (sanitized). Else timestamp+hash.")
+    ap.add_argument("--run-name", type=str, default=None, help="Reuse/set run_id under views/runs/")
+    ap.add_argument("--run-dir", type=Path, default=None, help="Existing run dir (predictions/fused)")
 
-    ap.add_argument("--skip-render", action="store_true", help="Assume rgb/camera_params already exist under views root.")
+    ap.add_argument(
+        "--from",
+        dest="from_stage",
+        choices=STAGES,
+        default="render",
+        help="Resume from this stage. --skip-render is an alias for --from query.",
+    )
+    ap.add_argument("--skip-render", action="store_true", help="Same as --from query")
+    ap.add_argument("--pause-after-mask", action="store_true", help="Stop after mask+review; continue with --from vote")
+    ap.add_argument("--bbox-key", type=str, default=None, help="Key in docs/bbox_data2.json for OBB overlay/eval")
+    ap.add_argument("--bbox", type=Path, default=Path("docs/bbox_data2.json"))
+    ap.add_argument("--clean", action="store_true", help="After success, delete overlays / review / rejected dumps")
+
     ap.add_argument("--iteration", type=int, default=None, help="Passed to render.py --iteration")
     ap.add_argument("--num-custom-views", type=int, default=36, dest="num_custom_views")
 
@@ -232,127 +265,121 @@ def main() -> None:
     ap.add_argument("--no-depth", action="store_true")
     ap.add_argument("--views", type=int, nargs="+", default=None)
 
-    ap.add_argument("--visibility-check", action="store_true")
-    ap.add_argument("--visibility-permissive", action="store_true")
-    ap.add_argument("--visibility-strict", action="store_true")
-    ap.add_argument("--visibility-base-url", type=str, default=None)
-    ap.add_argument("--visibility-model", type=str, default=None)
-
     ap.add_argument("--inlier-radius", type=float, default=5.0)
     ap.add_argument("--min-inv", type=float, default=1e-3)
     ap.add_argument("--refine-k", type=float, default=1.35)
     ap.add_argument("--no-refine", action="store_true")
-    ap.add_argument("--ply", type=Path, default=None, help="point_cloud.ply used as inject base (iteration_30000).")
-    ap.add_argument("--snap", action="store_true",
-                    help="If --ply omitted, auto-pick latest point_cloud.ply under --model-path (inject base only).")
-    ap.add_argument("--exclude", type=int, nargs="+", default=None)
-    ap.add_argument("--depth-dir", type=Path, default=None,
-                    help="Override depth_raw directory (e.g. views_root/depth_raw_dav2).")
-    ap.add_argument("--depth-mode", choices=("invdepth", "ray"), default="ray",
-                    help="Fuse depth: invdepth=raster z only; ray=refine z along ray via --ply Gaussians")
+    ap.add_argument("--ply", type=Path, default=None, help="point_cloud.ply; default: latest numeric iteration")
+    ap.add_argument("--depth-dir", type=Path, default=None)
+    ap.add_argument("--depth-mode", choices=("invdepth", "ray"), default="ray")
     ap.add_argument("--ray-perp-radius", type=float, default=0.06)
     ap.add_argument("--ray-pixel-radius", type=float, default=6.0)
     ap.add_argument("--ray-z-band", type=float, default=2.0)
     ap.add_argument("--ray-min-alpha", type=float, default=0.45)
 
     ap.add_argument("--skip-overlay", action="store_true")
-    ap.add_argument("--no-model-bundle", action="store_true",
-                    help="Skip copying the full model + inject (only write run_dir artifacts).")
-
-    ap.add_argument("--inject-all-candidates", action="store_true",
-                    help="Pass --all-candidates to inject_gaussian_markers.py (debug overlay in Gaussians).")
-
+    ap.add_argument("--filter-preset", default="default")
     ap.add_argument(
-        "--inject-surface-push",
-        type=float,
-        default=0.0,
-        metavar="M",
-        help=(
-            "Meters (scene units): nudge injected marker center out of dense plush interior "
-            "(0 default; try 0.03–0.1 if markers are invisible in SIBR)."
-        ),
+        "--use-wsl",
+        action=argparse.BooleanOptionalAction,
+        default=platform.system().lower().startswith("win"),
+        help="Run DINO+SAM in WSL roborefer (default True on Windows)",
     )
-    ap.add_argument("--inject-surface-push-k", type=int, default=48, help="k neighbours for inject surface push.")
+    ap.add_argument("--sam2-checkpoint", type=Path, default=Path("weights/sam2.1_hiera_large.pt"))
+    ap.add_argument("--sam2-config", default="configs/sam2.1/sam2.1_hiera_l.yaml")
     ap.add_argument(
-        "--inject-marker-offset",
-        type=float,
-        nargs=3,
-        default=None,
-        metavar=("DX", "DY", "DZ"),
-        help="Extra world translation for marker center (scene units), e.g. 0 0.06 0 to lift along +Y.",
+        "--grounding-config",
+        type=Path,
+        default=Path("GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"),
     )
-    ap.add_argument("--inject-log-scale", type=float, default=None,
-                    help="Override marker --log-scale (less negative = larger splats).")
-    ap.add_argument("--inject-marker-count", type=int, default=None, help="Override number of marker Gaussians.")
-    ap.add_argument("--inject-opacity", type=float, default=None, help="Override --opacity-sigmoid for markers.")
-    ap.add_argument("--inject-jitter", type=float, default=None, help="Override marker position jitter.")
+    ap.add_argument("--grounding-checkpoint", type=Path, default=Path("weights/groundingdino_swint_ogc.pth"))
+    ap.add_argument("--grounding-box-threshold", type=float, default=0.10)
+    ap.add_argument("--grounding-text-threshold", type=float, default=0.12)
+    ap.add_argument("--anchor-box-radius", type=int, default=64)
+    ap.add_argument("--max-box-area-ratio", type=float, default=0.35)
+    ap.add_argument("--review-alpha", type=float, default=0.45)
+    return ap.parse_args(argv)
 
-    args = ap.parse_args()
 
-    if args.visibility_permissive and args.visibility_strict:
-        ap.error("--visibility-permissive and --visibility-strict are mutually exclusive.")
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+
+    from_stage = args.from_stage
+    if args.skip_render and from_stage == "render":
+        from_stage = "query"
 
     model_path = _abs(args.model_path)
     views_root = _abs(args.custom_views_out)
-    if not views_root.is_dir():
-        raise SystemExit(f"custom-views-out is not a directory: {views_root}")
+    out_dir = _abs(args.out_dir) if args.out_dir is not None else _abs(Path("training_data") / args.name)
+    bbox_path = _abs(args.bbox)
+    sam2_ckpt = _abs(args.sam2_checkpoint)
+    gdino_ckpt = _abs(args.grounding_checkpoint)
+    gdino_cfg = _abs(args.grounding_config)
 
-    base_id = _default_run_id(args.prompt, args.run_name)
-    run_id, run_dir, model_copy_dir = _allocate_run_paths(views_root, model_path, base_id)
+    if from_stage == "render":
+        views_root.mkdir(parents=True, exist_ok=True)
+    else:
+        if not views_root.is_dir():
+            raise SystemExit(f"custom-views-out is not a directory: {views_root}")
+        require_views(views_root)
+
+    if _should_run("query", from_stage):
+        preflight_api(args.url)
+    if _should_run("mask", from_stage) and args.use_wsl:
+        preflight_wsl(
+            sam2_checkpoint=sam2_ckpt,
+            grounding_checkpoint=gdino_ckpt,
+            grounding_config=gdino_cfg,
+        )
+
+    ply_used = _abs(args.ply) if args.ply is not None else guess_ply(model_path)
+    if ply_used is None or not ply_used.is_file():
+        if _should_run("fuse", from_stage) or _should_run("filter", from_stage) or _should_run("vote", from_stage):
+            raise SystemExit("--ply missing and no numeric point_cloud/iteration_*/point_cloud.ply under --model-path")
+
+    run_id, run_dir = _resolve_run_dir(
+        views_root=views_root,
+        out_dir=out_dir,
+        prompt=args.prompt,
+        run_name=args.run_name,
+        run_dir_arg=args.run_dir,
+        from_stage=from_stage,
+    )
     run_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     predictions_path = run_dir / "predictions.json"
-    fused_path = run_dir / "fused.json"
-    marker_path = run_dir / "marker.ply"
+    fused_run = run_dir / "fused.json"
+    fused_obj = out_dir / "fused.json"
     overlays_dir = run_dir / "overlays_rgb"
-
-    ply_used = _abs(args.ply) if args.ply is not None else None
-    if ply_used is None and not args.snap:
-        ap.error("Provide --ply and/or --snap (use --snap to auto-pick latest point_cloud.ply under --model-path).")
-    if ply_used is None:
-        sys.path.insert(0, str(BRIDGE))
-        from pipeline import _guess_ply  # noqa: WPS433
-
-        ply_used = _guess_ply(model_path)
-        if ply_used is None or not ply_used.is_file():
-            raise SystemExit(f"--snap set but no point_cloud.ply found under {model_path}")
-
-    try:
-        rel_ply = ply_used.relative_to(model_path)
-    except ValueError as e:
-        raise SystemExit(
-            f"--ply must live under --model-path for bundle inject ({ply_used} vs {model_path})"
-        ) from e
 
     manifest: dict[str, Any] = {
         "run_id": run_id,
         "started_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "from_stage": from_stage,
         "prompt": args.prompt,
+        "object": args.object,
+        "name": args.name,
         "url": args.url,
         "model_path": str(model_path).replace("\\", "/"),
         "views_root": str(views_root).replace("\\", "/"),
         "run_dir": str(run_dir).replace("\\", "/"),
-        "snap_ply": str(ply_used).replace("\\", "/"),
-        "model_copy_dir": None if args.no_model_bundle else str(model_copy_dir).replace("\\", "/"),
+        "out_dir": str(out_dir).replace("\\", "/"),
+        "fuse_ply": str(ply_used).replace("\\", "/") if ply_used else None,
     }
-    with (run_dir / "run_manifest.json").open("w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
-
-    trace = run_dir / "prompt.txt"
-    trace.write_text(
+    _write_json(run_dir / "run_manifest.json", manifest)
+    (run_dir / "prompt.txt").write_text(
         "# 溯源：与本 run 的 RoboRefer --prompt 完全一致（UTF-8）\n"
         f"# run_id: {run_id}\n"
+        f"# name: {args.name}\n"
+        f"# object: {args.object}\n"
         f"# url: {args.url}\n"
         "# ----------------------------------------\n"
         f"{args.prompt}\n",
         encoding="utf-8",
     )
 
-    # --- B render ---
-    if not args.skip_render:
-        sys.path.insert(0, str(BRIDGE))
-        from pipeline import stage_render  # noqa: WPS433
-
+    if _should_run("render", from_stage):
         rargs = argparse.Namespace(
             model_path=model_path,
             custom_views_out=views_root,
@@ -360,144 +387,253 @@ def main() -> None:
             num_custom_views=args.num_custom_views,
         )
         stage_render(rargs)
-    else:
-        print("[e2e] skip-render: using existing views under", views_root)
+        require_views(views_root)
 
-    # --- C RoboRefer ---
-    if not _probe_api(args.url):
-        print(
-            "\n请先启动 RoboRefer API，并确认本机可访问该地址（例如 WSL 中已运行 api.py，端口与 --url 一致）。\n"
-            f"当前无法连接: {args.url}\n",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-
-    _stage_roborefer_client(
-        views_root=views_root,
-        predictions_out=predictions_path,
-        url=args.url,
-        prompt=args.prompt,
-        retry=args.retry,
-        no_depth=args.no_depth,
-        views=args.views,
-        visibility_check=args.visibility_check,
-        visibility_permissive=args.visibility_permissive,
-        visibility_strict=args.visibility_strict,
-        visibility_base_url=args.visibility_base_url,
-        visibility_model=args.visibility_model,
-    )
-
-    # --- D+E fuse + marker ply ---
-    sys.path.insert(0, str(BRIDGE))
-    from pipeline import stage_fuse  # noqa: WPS433
-
-    depth_dir_resolved = _abs(args.depth_dir) if args.depth_dir else None
-    fuse_ns = argparse.Namespace(
-        predictions=predictions_path,
-        custom_views_out=views_root,
-        model_path=model_path,
-        inlier_radius=args.inlier_radius,
-        min_inv=args.min_inv,
-        no_refine=args.no_refine,
-        refine_k=args.refine_k,
-        ply=ply_used,
-        fused_output=fused_path,
-        marker_output=marker_path,
-        exclude=args.exclude,
-        depth_dir=depth_dir_resolved,
-        depth_mode=args.depth_mode,
-        ray_perp_radius=args.ray_perp_radius,
-        ray_pixel_radius=args.ray_pixel_radius,
-        ray_z_band=args.ray_z_band,
-        ray_min_alpha=args.ray_min_alpha,
-    )
-    stage_fuse(fuse_ns)
-
-    # --- overlay ---
-    if not args.skip_overlay:
-        overlays_dir.mkdir(parents=True, exist_ok=True)
-        _stage_overlay(
+    if _should_run("query", from_stage):
+        _stage_query(
             views_root=views_root,
-            predictions_path=predictions_path,
-            fused_path=fused_path,
-            out_dir=overlays_dir,
+            predictions_out=predictions_path,
+            url=args.url,
+            prompt=args.prompt,
+            retry=args.retry,
+            no_depth=args.no_depth,
+            views=args.views,
         )
-    else:
-        print("[e2e] skip-overlay")
+    elif _should_run("fuse", from_stage) and not predictions_path.is_file():
+        raise SystemExit(f"--from {from_stage} needs {predictions_path} (pass --run-dir)")
 
-    inject_iteration_folder: str | None = None
-
-    # --- copy model + inject ---
-    if not args.no_model_bundle:
-        if model_copy_dir.exists():
-            raise SystemExit(f"refuse to overwrite existing model copy: {model_copy_dir}")
-        print(f"[e2e] copying model tree -> {model_copy_dir} (may take a while)…")
-        shutil.copytree(model_path, model_copy_dir, symlinks=False)
-        base_in_copy = model_copy_dir / rel_ply
-        if rel_ply.parent.name == _INJECT_ITER_DIR:
-            inject_folder_name = _INJECT_COLLISION_FALLBACK
-            print(
-                f"[e2e] inject -> {inject_folder_name} "
-                f"(snap base is {_INJECT_ITER_DIR}/; avoid same-file overwrite on Windows)",
-            )
+    if _should_run("fuse", from_stage):
+        fuse_ns = argparse.Namespace(
+            predictions=predictions_path,
+            inlier_radius=args.inlier_radius,
+            min_inv=args.min_inv,
+            no_refine=args.no_refine,
+            refine_k=args.refine_k,
+            ply=ply_used,
+            fused_output=fused_run,
+            depth_dir=_abs(args.depth_dir) if args.depth_dir else None,
+            depth_mode=args.depth_mode,
+            ray_perp_radius=args.ray_perp_radius,
+            ray_pixel_radius=args.ray_pixel_radius,
+            ray_z_band=args.ray_z_band,
+            ray_min_alpha=args.ray_min_alpha,
+        )
+        stage_fuse(fuse_ns)
+        shutil.copy2(fused_run, fused_obj)
+        if not args.skip_overlay:
+            overlays_dir.mkdir(parents=True, exist_ok=True)
+            _stage_overlay(views_root, predictions_path, fused_run, overlays_dir)
         else:
-            inject_folder_name = _INJECT_ITER_DIR
-        inject_out = model_copy_dir / "point_cloud" / inject_folder_name
-        inject_iteration_folder = inject_out.name
-        if not base_in_copy.is_file():
-            raise SystemExit(f"copied base ply missing: {base_in_copy}")
-        inj_extra: list[str] = [
-            "--surface-push",
-            str(args.inject_surface_push),
-            "--surface-push-k",
-            str(args.inject_surface_push_k),
+            print("[e2e] skip-overlay")
+
+    if _should_run("filter", from_stage):
+        fused_path = _resolve_fused(out_dir, run_dir)
+        _subprocess_rc(
+            [
+                sys.executable,
+                str(BRIDGE / "gen_training_data.py"),
+                "--stage",
+                "project",
+                "--fused",
+                str(fused_path),
+                "--views-root",
+                str(views_root),
+                "--out",
+                str(out_dir),
+            ],
+            cwd=REPO,
+        )
+        proj = out_dir / "projections.json"
+        if not proj.is_file() or _json_len(proj) == 0:
+            raise SystemExit("project produced no in-frame views")
+        filter_cmd = [
+            sys.executable,
+            str(BRIDGE / "filter_views_3dgs.py"),
+            "--projections",
+            str(proj),
+            "--fused",
+            str(fused_path),
+            "--ply",
+            str(ply_used),
+            "--views-root",
+            str(views_root),
+            "--out-dir",
+            str(out_dir),
+            "--filter-preset",
+            args.filter_preset,
         ]
-        if args.inject_marker_offset is not None:
-            inj_extra.extend(["--marker-offset", *[str(x) for x in args.inject_marker_offset]])
-        if args.inject_log_scale is not None:
-            inj_extra.extend(["--log-scale", str(args.inject_log_scale)])
-        if args.inject_marker_count is not None:
-            inj_extra.extend(["--marker-count", str(args.inject_marker_count)])
-        if args.inject_opacity is not None:
-            inj_extra.extend(["--opacity-sigmoid", str(args.inject_opacity)])
-        if args.inject_jitter is not None:
-            inj_extra.extend(["--jitter", str(args.inject_jitter)])
-        _stage_inject(
-            base_ply_in_copy=base_in_copy,
-            fused_json=fused_path,
-            out_iteration_dir=inject_out,
-            all_candidates=args.inject_all_candidates,
-            extra_args=inj_extra,
+        if args.skip_overlay:
+            filter_cmd.append("--no-overlays")
+        _subprocess_rc(filter_cmd, cwd=REPO)
+        kept = out_dir / "projections_kept.json"
+        if not kept.is_file() or _json_len(kept) == 0:
+            raise SystemExit("filter: no views kept")
+
+    if _should_run("mask", from_stage):
+        kept = out_dir / "projections_kept.json"
+        if not kept.is_file():
+            raise SystemExit(f"--from mask needs {kept}")
+        mask_kwargs = dict(
+            out_dir=out_dir,
+            prompt=args.prompt,
+            object_name=args.object,
+            sam2_checkpoint=sam2_ckpt,
+            sam2_config=args.sam2_config,
+            grounding_config=gdino_cfg,
+            grounding_checkpoint=gdino_ckpt,
+            grounding_box_threshold=args.grounding_box_threshold,
+            grounding_text_threshold=args.grounding_text_threshold,
+            anchor_box_radius=args.anchor_box_radius,
+            max_box_area_ratio=args.max_box_area_ratio,
         )
-        manifest["inject_marker_options"] = {
-            "surface_push": args.inject_surface_push,
-            "surface_push_k": args.inject_surface_push_k,
-            "marker_offset": list(args.inject_marker_offset) if args.inject_marker_offset is not None else None,
-            "extra_cli": inj_extra,
-        }
-        manifest["model_copy_dir"] = str(model_copy_dir).replace("\\", "/")
-        manifest["inject_iteration_dir"] = inject_iteration_folder
-        manifest["sibr_hint"] = (
-            f'Set-Location "{REPO / "3DGS" / "gaussian-splatting" / "viewers" / "bin"}" ; '
-            f'.\\SIBR_gaussianViewer_app.exe -m "{model_copy_dir}"'
+        if args.use_wsl:
+            run_mask_wsl(**mask_kwargs)
+        else:
+            run_mask_local(**mask_kwargs)
+        q_path = out_dir / "question.json"
+        if not q_path.is_file() or _json_len(q_path) == 0:
+            raise SystemExit("mask: question.json empty")
+        _subprocess_rc(
+            [
+                sys.executable,
+                str(BRIDGE / "make_mask_review.py"),
+                "--out",
+                str(out_dir),
+                "--views-root",
+                str(views_root),
+                "--alpha",
+                str(args.review_alpha),
+            ],
+            cwd=REPO,
         )
-        iter_suffix = inject_iteration_folder.removeprefix("iteration_")
-        manifest["sibr_iteration_note"] = (
-            f"In SIBR pick point_cloud iteration {iter_suffix} (folder {inject_iteration_folder})."
+        _write_json(
+            out_dir / "e2e_manifest.json",
+            {
+                "run_id": run_id,
+                "run_dir": str(run_dir).replace("\\", "/"),
+                "name": args.name,
+                "object": args.object,
+                "prompt": args.prompt,
+            },
         )
-        with (run_dir / "run_manifest.json").open("w", encoding="utf-8") as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
-    else:
-        print("[e2e] no-model-bundle: skipped full model copy + inject")
+        if args.pause_after_mask:
+            print("\n[e2e] paused after mask. Review:")
+            print(f"  {out_dir / 'review'}")
+            print("Continue:")
+            print(
+                f"  python bridge/run_bridge_e2e.py --model-path {model_path} "
+                f"--custom-views-out {views_root} --prompt {args.prompt!r} "
+                f"--object {args.object!r} --name {args.name} --out-dir {out_dir} "
+                f"--from vote --run-dir {run_dir}"
+            )
+            _write_json(run_dir / "run_manifest.json", manifest)
+            return
+
+    if _should_run("vote", from_stage):
+        q_path = out_dir / "question.json"
+        if not q_path.is_file():
+            raise SystemExit(f"--from vote needs {q_path}")
+        _subprocess_rc(
+            [
+                sys.executable,
+                str(BRIDGE / "gen_training_data.py"),
+                "--stage",
+                "refine",
+                "--out",
+                str(out_dir),
+            ],
+            cwd=REPO,
+        )
+        fused_path = _resolve_fused(out_dir, run_dir)
+        _subprocess_rc(
+            [
+                sys.executable,
+                str(BRIDGE / "frustum_segment.py"),
+                "--obj-dir",
+                str(out_dir),
+                "--views-root",
+                str(views_root),
+                "--ply",
+                str(ply_used),
+                "--fused",
+                str(fused_path),
+            ],
+            cwd=REPO,
+        )
+        seg_path = out_dir / "gaussian_seg.json"
+        if not seg_path.is_file():
+            raise SystemExit("vote: gaussian_seg.json missing")
+        seg = json.loads(seg_path.read_text(encoding="utf-8"))
+        n_sel = int(seg.get("n_selected") or 0)
+        print(f"[e2e] vote selected={n_sel}")
+        if n_sel <= 0:
+            raise SystemExit("vote selected 0 Gaussians")
+
+        bbox_key = _resolve_bbox_key(args.name, args.bbox_key)
+        have_obb = _bbox_exists(bbox_path, bbox_key)
+        inject_dir = model_path / "point_cloud" / f"iteration_seg_{args.name}"
+        inject_cmd = [
+            sys.executable,
+            str(BRIDGE / "inject_gaussian_seg.py"),
+            "--seg",
+            str(seg_path),
+            "--ply",
+            str(ply_used),
+            "--model-path",
+            str(model_path),
+            "--out-iteration-dir",
+            str(inject_dir),
+        ]
+        if have_obb:
+            inject_cmd.extend(["--bbox", str(bbox_path), "--object", bbox_key])
+        else:
+            inject_cmd.append("--no-obb")
+        _subprocess_rc(inject_cmd, cwd=REPO)
+        manifest["sibr_iteration"] = f"seg_{args.name}"
+        manifest["inject_dir"] = str(inject_dir).replace("\\", "/")
+
+        if have_obb:
+            eval_out = out_dir / "eval_gaussian_seg.json"
+            _subprocess_rc(
+                [
+                    sys.executable,
+                    str(BRIDGE / "eval_gaussian_seg.py"),
+                    "--obj-dir",
+                    str(out_dir),
+                    "--bbox",
+                    str(bbox_path),
+                    "--object-key",
+                    bbox_key,
+                    "--views-root",
+                    str(views_root),
+                    "--output",
+                    str(eval_out),
+                ],
+                cwd=REPO,
+            )
+            manifest["eval"] = str(eval_out).replace("\\", "/")
+
+    if args.clean:
+        _clean_debug(run_dir, out_dir)
+
+    _write_json(run_dir / "run_manifest.json", manifest)
+    _write_json(
+        out_dir / "e2e_manifest.json",
+        {
+            "run_id": run_id,
+            "run_dir": str(run_dir).replace("\\", "/"),
+            "name": args.name,
+            "object": args.object,
+            "prompt": args.prompt,
+            "sibr_iteration": manifest.get("sibr_iteration"),
+        },
+    )
 
     print("\n[e2e] done.")
-    print(f"  run_dir       = {run_dir}")
-    if not args.no_model_bundle and inject_iteration_folder is not None:
-        print(f"  model_copy    = {model_copy_dir}")
-        _print_sibr_footer(model_copy_dir=model_copy_dir, inject_iteration_folder=inject_iteration_folder)
-    elif args.no_model_bundle:
-        print("  (未复制模型) 融合点可打开 MeshLab / CloudCompare 查看:")
-        print(f"    {marker_path.resolve()}")
+    print(f"  out_dir = {out_dir}")
+    print(f"  run_dir = {run_dir}")
+    print(f"  SIBR: --iteration seg_{args.name}")
+    print(f"  (from viewers/bin; model {model_path})")
 
 
 if __name__ == "__main__":

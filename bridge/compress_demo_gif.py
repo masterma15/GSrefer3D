@@ -1,4 +1,4 @@
-"""Compress demo SIBR GIFs to a target size band (default 5–10 MB)."""
+"""将 demo 中的 SIBR GIF 压缩到目标体积区间（默认 5–10 MB）。"""
 from __future__ import annotations
 
 import argparse
@@ -68,7 +68,7 @@ def compress_one(
         if not bak.exists():
             shutil.copy2(dst, bak)
 
-    # Search: coarser settings until within band or best effort under max.
+    # 搜索：逐步变粗直到落入区间，或尽量压到上限以下。
     configs = [
         (960, 1, 128),
         (960, 2, 128),
@@ -109,14 +109,31 @@ def main() -> None:
         "--suffix",
         type=str,
         default="",
-        help="If set (e.g. _preview), write stem{suffix}.gif; default overwrites source (avoid for committed full-res files).",
+        help="If set (e.g. _preview), write stem{suffix}.gif; default overwrites source and keeps .orig backup.",
     )
     p.add_argument("--no-backup", action="store_true")
+    p.add_argument(
+        "--names",
+        nargs="+",
+        default=[
+            "shaver.gif",
+            "rabbit.gif",
+            "golden_retriever.gif",
+            "umbrella.gif",
+            "cake.gif",
+            "hair_clip.gif",
+            "double_sided_tape.gif",
+        ],
+        help="GIF filenames under --demo-dir",
+    )
     args = p.parse_args()
-    names = ["teaser_3d_electric_shaver.gif", "teaser_3d_brown_rabbit.gif"]
-    for name in names:
+    for name in args.names:
         src = args.demo_dir / name
+        if not src.is_file():
+            print(f"skip missing {src}")
+            continue
         dst = src.with_name(f"{src.stem}{args.suffix}{src.suffix}") if args.suffix else src
+        print(f"[compress] {src.name} ({src.stat().st_size / 1e6:.1f} MB) ...", flush=True)
         size = compress_one(
             src,
             dst,

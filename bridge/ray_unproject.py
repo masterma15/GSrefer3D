@@ -1,9 +1,8 @@
-"""Refine unproject depth along the camera ray using local 3DGS Gaussians.
+"""沿相机射线、用局部 3DGS 高斯精炼反投影深度。
 
-Given (nx, ny) and raster expected_invdepth, build an initial camera depth z0, then
-select Gaussians near the ray and near the click in image space; set depth from their
-camera-space z using p75 in the band, then ``z_ref = max(z0, z_pick)`` (never shallower
-than raster z0).
+由 (nx, ny) 和栅格 expected_invdepth 得到初始相机深度 z0，再选出靠近射线、
+且在图像上靠近点击的高斯；在深度带内取其相机系 z 的 p75，
+``z_ref = max(z0, z_pick)``（不会比栅格 z0 更浅）。
 """
 from __future__ import annotations
 
@@ -51,7 +50,7 @@ def _gaussian_alpha_on_ray(
     C: np.ndarray,
     d: np.ndarray,
 ) -> np.ndarray:
-    """Per-Gaussian alpha weight (opacity * Gaussian falloff on ray)."""
+    """每个高斯的 alpha 权重（不透明度 × 射线上的高斯衰减）。"""
     mu = model.xyz[idx]
     opacity = model.opacity[idx]
     scales = model.scales[idx]
@@ -89,7 +88,7 @@ def refine_z_on_ray(
     *,
     cfg: RayUnprojectConfig,
 ) -> tuple[float, dict]:
-    """Return (z_refined, debug dict). Falls back to z0 if no valid Gaussians."""
+    """返回 (精炼后的 z, 调试字典)。没有有效高斯时回退到 z0。"""
     u0, v0 = unp.normalized_to_pixel(nx, ny)
     fu = nx * view.width
     fv = ny * view.height
@@ -151,7 +150,7 @@ def unproject_with_ray_depth(
     cfg: RayUnprojectConfig | None = None,
     kind: str = "expected_invdepth",
 ) -> dict:
-    """Like normalized_with_depth_raw but z from ray-local Gaussians when possible."""
+    """类似 normalized_with_depth_raw，但在可能时用射线附近高斯的 z。"""
     cfg = cfg or RayUnprojectConfig()
     u, v = unp.normalized_to_pixel(nx, ny)
     stored, z0 = unp.sample_depth_raw(depth_path, u, v, kind=kind)

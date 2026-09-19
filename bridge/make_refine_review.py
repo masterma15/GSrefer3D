@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Export refine before/after overlays: green=projection, red=refined centroid.
+"""导出 refine 前后叠加图：绿=投影点，红=精炼后质心。
 
-Reads ``question.json`` + ``projections_kept.json`` (original nx,ny). Writes
-``<out>/review_refine/refine_view_XXX.png``.
+读取 ``question.json`` + ``projections_kept.json``（原始 nx,ny）。写出
+``<out>/review_refine/refine_view_XXX.png``。
 
-Example::
+示例::
 
     python bridge/make_refine_review.py --out training_data/data2_medicine_bottle
     python bridge/make_refine_review.py --inputs training_data/data2_*

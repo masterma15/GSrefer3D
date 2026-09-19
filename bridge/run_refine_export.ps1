@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
 $dirs = Get-ChildItem "training_data\data2_*" -Directory |
-    Where-Object { $_.Name -ne "data2_sft" }
+    Where-Object { $_.Name -notin @("data2_sft", "data2_tape") }
 
 foreach ($d in $dirs) {
     if (-not (Test-Path (Join-Path $d.FullName "question.json"))) {

@@ -95,27 +95,32 @@ Set-Location gaussian-splatting/viewers/bin
 
 ## 整合管线 (bridge/)
 
-把 3DGS 渲染和 RoboRefer 空间指代连接成 "RGB-D 多视角 → 归一化 2D 点 → 世界 3D 点" 的闭环。所有桥接代码在仓库根目录的 `bridge/` 下，独立于两个子项目。依赖：`numpy`、`plyfile`（融合 + 可视化）、`requests`（RoboRefer HTTP 客户端）、**`scipy`**（`filter_views_3dgs.py` 射线透射 KD-tree，须在 **envGS** 内安装）。**不再依赖 `query_model.py` 或 `openai` 包**——客户端直接通过 HTTP POST 调用 RoboRefer API。
+把 3DGS 渲染和 RoboRefer 空间指代连接成闭环。`P_world` 只是生成 2D mask 的种子，3D 结果是视锥投票后的物体高斯。所有桥接代码在仓库根目录的 `bridge/` 下。依赖：`numpy`、`plyfile`、`requests`、**`scipy`**（`filter_views_3dgs.py` 射线透射，须在 **envGS**）。客户端 HTTP POST 调 RoboRefer API。
 
 ### 数据流
 
 ```
+bridge/run_bridge_e2e.py 编排（subprocess / WSL）：
 3DGS render.py --custom_views   →  <root>/{rgb, depth, depth_raw, camera_params}/
-bridge/roborefer_client.py      →  <root>/predictions.json   （N 视角 (nx, ny)）
-bridge/fuse_multiview.py        →  <root>/fused.json         （单一 P_world + RANSAC inliers）
-bridge/visualize.py             →  <root>/marker.ply         （MeshLab/CloudCompare 叠看）
-bridge/inject_gaussian_markers.py → output/<model>/point_cloud/iteration_35000/  （SIBR 可视化）
-bridge/pipeline.py              →  上述步骤的编排器
+bridge/roborefer_client.py      →  runs/<id>/predictions.json
+bridge/fuse_multiview.py        →  fused.json（P_world 种子）
+bridge/filter_views_3dgs.py     →  projections_kept.json
+bridge/gen_training_data.py     →  mask/（Grounding DINO + SAM2）
+bridge/frustum_segment.py       →  gaussian_seg.json         （物体高斯）
+bridge/inject_gaussian_seg.py   →  iteration_seg_<name>/     （SIBR）
+bridge/eval_gaussian_seg.py     →  有手标 OBB 时：质心∈OBB、框内占比、2D mask 精度
 ```
 
 ### 关键文件
 
 - `bridge/unproject.py` — `CameraView` + `Unprojector`。**约定（重要）**：`render.py` 保存的 `view.R` 是 3DGS 内部的 R_c2w（camera-to-world，glm 列主序约定的转置），`from_json()` 里会自动转置为 R_w2c 再使用，**不要直接把 JSON 里的 `rotation` 当 R_w2c 用**。`position` 是世界系下相机中心 C。反投影公式 `P_world = R_w2c.T @ P_cam + C`（即 `R_c2w @ P_cam + C`）。`depth_raw/*.npy` 是 raster 输出的 `expected_invdepth`，需要 `z_cam = 1 / max(inv, eps)`（已在 `Unprojector.sample_depth_raw` 处理）。
 - `bridge/roborefer_client.py` — 单/批量模式。内置 HTTP 客户端，直接 POST `{image_url: [base64], depth_url: [base64], enable_depth, text}` 到 RoboRefer `/query` 端点，只需 `requests` 库。批量模式扫 `<root>/rgb/view_*.png` 的 view id，把回答解析为 `[{nx, ny}]` 写进 `predictions.json`，失败视角不中断（记录 `error`）。
-- `bridge/fuse_multiview.py` — RANSAC（按 `--inlier-radius` 邻居计数）选最大簇 → **迭代精炼**（geometric median + k*median_dist 剔除远点，循环至收敛）→ 可选 `--ply` 做 snap-to-gaussian。参数：`--no-refine`（禁用迭代精炼）、`--refine-k`（精炼阈值倍数，默认 2.0）、`--exclude <view_id ...>`（手动剔除指向错误物体的视角）。
-- `bridge/visualize.py` — 把 fused.json 渲染成带颜色的 ASCII PLY：红=融合点，绿=inlier，黄=outlier。用 MeshLab/CloudCompare 与 point_cloud.ply 叠看。
-- `bridge/inject_gaussian_markers.py` — 把融合点注入为红色高斯球，写入新的 `iteration_35000/point_cloud.ply`，可直接在 SIBR viewer 中渲染。
-- `bridge/pipeline.py` — 4 阶段编排器：`--stage render|query|fuse|all`。**query 阶段只需 `requests` 库**（检测 `import requests` 是否可用）；不可用时打印切环境指令并 `sys.exit(10)`。
+- `bridge/fuse_multiview.py` — RANSAC + 迭代精炼得到 **mask 种子** `P_world`（不是 3D 评测结果）。`--ply` 供 `--depth-mode ray` 沿射线查高斯。`--no-refine`、`--refine-k`。
+- `bridge/frustum_segment.py` — 多视 mask 视锥投票（默认 `--min-vote-frac 0.5`）→ `gaussian_seg.json`。
+- `bridge/inject_gaussian_seg.py` — 选中高斯改色 + 手标 OBB 线框，写出独立 iteration（不写回 30000）。
+- `bridge/eval_gaussian_seg.py` — **现行 3D 口径**：投票质心是否在 OBB 内、选中高斯框内占比、2D mask 重投影精度。
+- `bridge/run_bridge_e2e.py` — 唯一用户入口：render → query → fuse 种子 → project/filter → WSL DINO+SAM → refine → 视锥投票 → SIBR 注入。API 不可用 `sys.exit(10)`；WSL/mask 环境缺 `sys.exit(11)`。
+- `bridge/e2e_stages.py` — 渲染/融合/WSL mask 预检，供 e2e 调用，不是入口。
 - `bridge/filter_views_3dgs.py` — 训练数据视角过滤：`projections.json` + `fused.json` + 全场 `point_cloud.ply` → `projections_kept.json` / `projections_rejected.json`。拒帧规则：射线 `C→P_world`，簇深度带 `[z_lo,z_hi]`，`T(z_lo) < --ray-min-transmittance`（默认 0.55）→ `ray_foreground_occluded`。须在 envGS 且已装 `scipy`。
 - `bridge/gen_training_data.py` — `--stage project` 生成投影；`--stage mask` 需 WSL roborefer + SAM2。
 - `bridge/tests/` — pytest 回归。`test_unproject_view000.py` 硬编码金标准（view_000, nx=0.458, ny=0.298 → P_world=[-1.614, 0.703, -0.194]），任何改了渲染端字段、深度语义、外参约定的提交都会立刻报警。
@@ -163,85 +168,57 @@ python bridge/roborefer_client.py `
     --prompt "Please point to the electric shaver." `
     --output E:/GSrefer3D/3DGS/test2/predictions.json
 
-# 3) Windows envGS: 融合 + snap
+# 3) 融合种子（P_world 只给后续 mask 用）
 python bridge/fuse_multiview.py `
     --predictions E:/GSrefer3D/3DGS/test2/predictions.json `
     --inlier-radius 10.0 --min-inv 1e-3 --refine-k 1.75 `
     --ply E:/GSrefer3D/3DGS/gaussian-splatting/output/data2/point_cloud/iteration_30000/point_cloud.ply `
     --output E:/GSrefer3D/3DGS/test2/fused.json
 
-# 4) 导出 marker.ply（MeshLab/CloudCompare 叠看）
-python bridge/visualize.py `
-    --fused E:/GSrefer3D/3DGS/test2/fused.json `
-    --output E:/GSrefer3D/3DGS/test2/marker.ply
+# 4) 视锥投票 + SIBR 实例可视化 + 评测
+python bridge/frustum_segment.py --obj-dir training_data/data2_shaver
+python bridge/inject_gaussian_seg.py --seg training_data/data2_shaver/gaussian_seg.json
+python bridge/eval_gaussian_seg.py --obj-glob training_data/data2_* --output docs/results_gaussian_seg.json
 
-# 5) 注入高斯标记（SIBR 可视化）
-python bridge/inject_gaussian_markers.py `
-    --ply E:\GSrefer3D\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_30000\point_cloud.ply `
-    --fused-json E:\GSrefer3D\3DGS\test2\fused.json `
-    --out-iteration-dir E:\GSrefer3D\3DGS\gaussian-splatting\output\data2\point_cloud\iteration_35000
-
-# 6) SIBR 查看（必须从 bin/ 目录启动）
+# 5) SIBR（必须从 viewers/bin 启动）
 Set-Location E:\GSrefer3D\3DGS\gaussian-splatting\viewers\bin
-.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration 35000
+.\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration seg_electric_shaver
 ```
 
 ### 一体化端到端命令（`run_bridge_e2e.py`）
 
-**推荐方式**：一条命令完成渲染 → RoboRefer → 融合 → overlay → 模型复制 + 注入的全流程。在仓库根 `E:\GSrefer3D` 下运行（`envGS` 环境，WSL RoboRefer API 需提前起好）：
+**推荐方式**：一条命令从已有 3DGS 模型 + 提示词得到该物体的微调包和视锥投票点云（不含重建）。`--skip-render` = `--from query`，复用 `--custom-views-out` 下已有视角（默认 `3DGS/test2`，可改）。
 
 ```powershell
-# 完整流程（含渲染）
 Set-Location E:\GSrefer3D
 python bridge/run_bridge_e2e.py `
     --model-path 3DGS/gaussian-splatting/output/data2 `
     --custom-views-out 3DGS/test2 `
     --prompt "Please point to the brown stuffed rabbit." `
-    --snap --url http://127.0.0.1:25547
+    --object "plush rabbit" `
+    --name data2_rabbit `
+    --url http://127.0.0.1:25547
 
-# 跳过渲染（已有多视角时）— 对比微调前后时用同一 test2 + --skip-render
 python bridge/run_bridge_e2e.py `
     --model-path 3DGS/gaussian-splatting/output/data2 `
     --custom-views-out 3DGS/test2 `
     --prompt "Please point to the roll of clear double-sided adhesive tape on the desk." `
-    --snap --skip-render --url http://127.0.0.1:25547
+    --object "roll of clear double-sided tape" `
+    --name data2_tape `
+    --skip-render --url http://127.0.0.1:25547
 ```
 
-训前 baseline run：`3DGS/test2/runs/20260519_000313_6c883d56/`。训后换新 `run_id`；换 API 权重（基座 vs `RoboRefer-2B-SFT-data2-merged`）即可 A/B，**无需改 bridge 代码**。
+训前 baseline run：`3DGS/test2/runs/20260519_000313_6c883d56/`。
 
-**产物**：写入 `<custom-views-out>/runs/<run_id>/`（predictions.json、fused.json、marker.ply、overlays_rgb/、run_manifest.json、prompt.txt）；模型副本含注入标记写入 `<model-path>_runs/<run_id>/`。流程结束后终端打印可直接复制的 SIBR 启动命令。
+**产物**：`training_data/<name>/`（`question.json`、`mask/`、`gaussian_seg.json`）；`<views>/runs/<run_id>/`（predictions、fused 种子）；`--model-path/point_cloud/iteration_seg_<name>/`。不写 `data2_sft`。
 
-**常用参数**：
-
-| 参数 | 说明 |
-|---|---|
-| `--snap` | 自动选 `--model-path` 下最新迭代的 ply 做 snap（与 `--ply` 二选一） |
-| `--ply <path>` | 显式指定 snap 用的 point_cloud.ply（推荐用 iteration_30000 避免与注入目录冲突） |
-| `--skip-render` | 跳过 render.py，假定多视角已存在 |
-| `--iteration N` | 指定渲染用的 checkpoint iteration |
-| `--num-custom-views N` | 渲染视角数（默认 36） |
-| `--inlier-radius R` | 融合 RANSAC 邻域半径（场景单位，推荐 5.0–10.0） |
-| `--refine-k K` | 融合精炼阈值倍数（推荐 1.5–2.0） |
-| `--exclude <id...>` | 融合时剔除指定 view_id |
-| `--no-model-bundle` | 不复制模型、不注入，只输出 runs/ 下的预测与融合结果 |
-| `--inject-surface-push M` | 标记从内部推出表面（毛绒/内嵌物体时试 0.03–0.1） |
-| `--inject-log-scale V` | 标记大小（越不负越大，默认 -3.5） |
-| `--visibility-check` | 启用 Qwen 可见性预筛（需 `QWEN_API_KEY`） |
-
-**注入目录冲突处理**：若 `--snap` 自动选到 iteration_35000 且注入也默认写 iteration_35000，脚本自动改写到 iteration_36000 并记录在 run_manifest.json。建议显式用 `--ply .../iteration_30000/point_cloud.ply` 规避。
-
-**仅重注入**（标记不可见时，不重跑推理）：
-```powershell
-python bridge/inject_gaussian_markers.py `
-    --ply "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_30000\point_cloud.ply" `
-    --fused-json "E:\GSrefer3D\3DGS\test2\runs\<run_id>\fused.json" `
-    --out-iteration-dir "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2_runs\<run_id>\point_cloud\iteration_37000" `
-    --surface-push 0.06 --log-scale -2.5 --marker-count 80
-```
+**常用参数**：`--from render|query|fuse|filter|mask|vote`、`--pause-after-mask`、`--bbox-key`、`--out-dir`、`--ply`、`--skip-render`、`--clean`。
 
 ## 当前进度（2026-05）
 
-### 已完成
+> 实验时间线与数字见 [README.md](README.md) · [docs/RESULTS.md](docs/RESULTS.md)。
+
+### 已完成（主线闭环）
 
 | 项 | 状态 |
 |---|---|
@@ -252,19 +229,23 @@ python bridge/inject_gaussian_markers.py `
 | 云上权重 | `/root/autodl-tmp/RoboRefer-2B-SFT`（已齐） |
 | **2B LoRA 微调（1 epoch）** | 云上 `runs/train/data2_lora/`，~117 step、~6 min（4090D）；`train_loss≈1.02`，末段 loss ~0.7 |
 | LoRA 本机备份 | `RoboRefer-2B-SFT/data2_lora/`（自 `data2_lora.tar.gz` 解压；merge 用根目录 adapter，**不必**用 `checkpoint-117/`） |
-| e2e 训前 baseline（2B 基座，胶带） | `3DGS/test2/runs/20260519_000313_6c883d56/` |
+| **2B LoRA merge + merged API 权重** | `RoboRefer-2B-SFT-data2-merged/` |
+| **Base vs LoRA e2e** | 域内 10 物体 2D：LoRA median L2 ≤ Base（10/10）；见 `docs/results_2d_eval.json` |
+| **Hold-out 双面胶带** | 不进 469 SFT；定性 2D overlay |
+| **深度消融** | 3DGS `depth_raw` vs DAV2；`docs/depth_compare_batch.json` |
+| **人工 OBB（11 物体）** | `docs/bbox_data2.json` + `docs/bbox_labels/` |
+| **3D 实例评估** | 视锥投票质心 ∈ OBB + 框内高斯占比；`bridge/eval_gaussian_seg.py` |
+| **SIBR 实例可视化** | `inject_gaussian_seg.py`（品红=框内选中，亮绿=框外，青=OBB） |
+| **RefSpatial-Expand-Bench（OOD）** | Location Base **50.21%** / LoRA **45.64%**；作域适应 trade-off 对照，非主指标 |
+| e2e 训前 baseline（2B 基座，胶带） | `3DGS/test2/runs/20260519_000313_6c883d56/`（保留对比） |
+
+**口径说明：** `P_world` / `fused.json` 只作 mask 种子；**3D 主指标**是视锥投票高斯（`results_gaussian_seg.json`：质心 10/10 在手标 OBB 内，框内占比 0.993）。训练数据与 §5 2D 评估的种子来自历史 **invdepth + snap**；仓库 fuse CLI 默认已是 `depth_mode=ray`。不要把种子点 OBB 命中表当 3D 结果。
 
 ### 云上必做补丁（RoboRefer-main，换实例或重传代码时需确认）
 
 1. **`llava/data/datasets_mixture.py`**：`2D_*`/`3D_*` 变量名非法 → 改为 `ds_2d_*` / `ds_3d_*`（`dataset_name` 字符串不变）。
 2. **`llava/train/llava_trainer.py`**：`log(self, logs, start_time=None)` — 兼容新版 `transformers`。
 3. **`scripts/setups/train.sh` 单卡**：`export SLURM_JOB_GPUS_PER_NODE=1`（AutoDL 无 SLURM，否则默认 8 卡）。
-
-### 进行中 / 下一步
-
-1. **本机验证 2B LoRA**：WSL merge → `RoboRefer-2B-SFT-data2-merged/` → 云或 WSL API → `run_bridge_e2e.py --skip-render` 对比 baseline。
-2. **对照实验（计划）**：8B 基座 e2e（不微调）→ 8B LoRA（同 `data2_location`）→ 与 2B 基座 / 2B LoRA 四方对比。
-3. **Hold-out 验证**：**双面胶带**不在训练集；看 overlay / `fused.json`，**不必**单独 `val.json`。
 
 ### 验证 prompt（胶带，仅 e2e，不进训练集）
 
@@ -322,30 +303,49 @@ API：`--vlm_model_path` 指向 merged 目录。基座 `RoboRefer-2B-SFT/` **不
 
 ## 未来工作 / TODO
 
-### 数据构造与微调
+建议顺序：**近期收尾 → 8B 对照 → 训练管线升级 / 跨场景 → 系统鲁棒性**。本机 4060 跑 RoboRefer 推理/训练用 **AutoDL + SSH 隧道**；3DGS/bridge 在本机 `envGS`。
+
+### 一、近期收尾（优先）
+
+- [ ] **展示与材料**：简历/答辩与 README、RESULTS 对齐现行 `eval_gaussian_seg` 口径。
+
+### 二、对照实验（下一档主实验）
 
 - [x] **3DGS 合成 data2 → `data2_sft` + `data2_location` 注册**
 - [x] **2B LoRA 微调（AutoDL 4090D，469 条，1 epoch）**
-- [ ] **2B LoRA merge + e2e 对比 baseline（胶带 + 1–2 训练物体）**
-- [ ] **8B 基座 e2e 对照（云上 API，不微调）**
-- [ ] **8B LoRA 微调（架构用 `dynamic_s2` + `mlp_downsample`，非 2B 参数）**
-- [ ] 可选：RefSpatial-Expand-Bench Location 评测（非当前主验证路径）
+- [x] **2B LoRA merge + e2e 对比**（域内 2D + hold-out 胶带 + 视锥投票 3D）
+- [ ] **8B 基座 e2e**（云上 API，`RoboRefer-8B-SFT`，不微调；同 test2 / prompt / 融合策略）
+- [ ] **8B LoRA 微调**（同 `data2_location`；**`dynamic_s2` + `mlp_downsample`**，非 2B 的 `mlp_downsample_3x3_fix`）
+- [ ] **四方对比表**：2B Base / 2B LoRA / 8B Base / 8B LoRA → 域内 2D + OBB + 胶带 hold-out
 
-- **跨场景扩展（方向 B）**：data2 验证可行后，用 data（体育馆）等扩充训练集
+前置：云上拉齐 `RoboRefer-8B-SFT`（~18–20GB，见下方磁盘布局）。
 
-### Placement 任务（时间充裕后）
+### 三、数据与训练（方法升级，工作量大）
 
-- Placement 类数据需人工在渲染图上标注落点坐标（空位无法用 SAM2 自动生成 mask）
-- RoboRefer 本身偏向 Placement 指代，做完 Location 微调后扩展到 Placement 更有说服力
+- [ ] **训练融合策略升级**：当前 469 条 SFT 锚点来自 **invdepth + snap**；可试 **ray 融合** 重导 `P_world` → `gen_training_data` project / SAM2 / export → 再 LoRA。
+- [ ] **跨场景扩展（方向 B）**：data2 稳定后，用 **data（体育馆）** 扩训练集；单独报告大场景局限。
+- [ ] **Placement 任务**：需人工标落点（空位无法 SAM2 自动生成 mask）；Location 闭环后再做更有说服力。
 
-### 大场景测试
+### 四、系统鲁棒性（中远期）
 
-- data（体育馆大场景）：测试大场景下小目标空间指代精度，预期作为"挑战性测试集"展示系统局限性
-- 改进方向：分层指代（先粗定位区域，再细定位物体）
+- [ ] **大场景挑战测试**：data 小目标指代；可探索 **分层指代**（先区域后物体）。
+- [ ] **视角过滤**：`filter_views_3dgs.py` 射线透射拒帧（给 mask 用，不是进 VLM 前预筛）。
+- [ ] **文档与默认行为一致**：新人勿混用历史 e2e 的 invdepth+snap run 与当前 fuse 默认 ray。
 
-### 视角过滤优化
+### 五、可选 / 非主路径
 
-- 当前 `--visibility-check`（Qwen 可见性预筛）效果未明显体现，需在遮挡较多的小物体场景下重点测试和调参
+- [x] **RefSpatial-Expand-Bench**（已跑；LoRA 域内涨、OOD Location 略降，作讨论即可）
+- [ ] RefSpatial / 其他 OOD 深挖（时间允许）
+
+### 路线图（简）
+
+```
+近期收尾 (hair_clip / 可选 Base-ray / 材料)
+    → 8B Base e2e → 8B LoRA → 四方对比
+    → [可选] ray 重导 SFT + 再 LoRA
+    → 跨场景 data / Placement
+    → 大场景 + 可见性/拒帧优化
+```
 
 ---
 

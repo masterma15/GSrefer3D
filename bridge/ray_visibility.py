@@ -1,11 +1,11 @@
-"""Ray transmittance visibility for 3DGS (reject-mode B: cluster depth band).
+"""3DGS 射线透射可见性（拒帧模式 B：簇深度带）。
 
-Requires ``scipy`` (``cKDTree``); listed in ``3DGS/environment-envGS.yml``.
+需要 ``scipy``（``cKDTree``），见 ``3DGS/environment-envGS.yml``。
 
-Per view: one ray from camera center C through fused P_world. Cluster Gaussians
-define camera-depth band [z_lo, z_hi]. Foreground occlusion is
-``T(z_lo) = prod(1 - alpha_i)`` over scene Gaussians near the ray with z_cam < z_lo,
-using 3D Gaussian falloff (opacity * exp(-0.5 * mahalanobis^2) at closest point on ray).
+每个视角：从相机中心 C 穿过融合点 P_world 一条射线。簇内高斯给出相机深度带
+[z_lo, z_hi]。前景遮挡为 ``T(z_lo) = prod(1 - alpha_i)``，只积 z_cam < z_lo
+且靠近射线的场景高斯；alpha 用三维高斯衰减
+（不透明度 × exp(-0.5 * 马氏距离²)，取射线上最近点）。
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def _quat_to_rot(q: np.ndarray) -> np.ndarray:
-    """Quaternion (w,x,y,z) per row -> (N,3,3) rotation matrices."""
+    """每行四元数 (w,x,y,z) → (N,3,3) 旋转矩阵。"""
     q = np.asarray(q, dtype=np.float64)
     if q.ndim == 1:
         q = q.reshape(1, 4)
@@ -47,7 +47,7 @@ def _quat_to_rot(q: np.ndarray) -> np.ndarray:
 
 
 def load_ply_gaussians(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load xyz (N,3), opacity (N,), scales (N,3), rot (N,4) wxyz from 3DGS ply."""
+    """从 3DGS ply 读取 xyz (N,3)、opacity (N,)、scales (N,3)、rot (N,4) wxyz。"""
     from plyfile import PlyData
 
     ply = PlyData.read(str(path))
@@ -77,7 +77,7 @@ def load_ply_gaussians(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
 
 
 def cluster_depth_band(cluster_xyz: np.ndarray, cam: dict, *, frame_margin: int, w: int, h: int) -> tuple[float, float] | None:
-    """Camera z range [z_lo, z_hi] for cluster points in frame."""
+    """画幅内簇点的相机深度范围 [z_lo, z_hi]。"""
     from gen_training_data import in_frame
 
     zs: list[float] = []
@@ -98,7 +98,7 @@ def _world_to_cam_batch(p: np.ndarray, cam: dict) -> np.ndarray:
 
 @dataclass
 class RayOcclusionModel:
-    """Scene Gaussians + KD-tree for ray-cylinder candidate queries."""
+    """场景高斯 + KD 树，用于射线圆柱候选查询。"""
 
     xyz: np.ndarray
     opacity: np.ndarray
@@ -147,7 +147,7 @@ class RayOcclusionModel:
         *,
         z_hi: float | None = None,
     ) -> dict[str, float]:
-        """Integrate alpha along C->P_world; return T and stats at camera depth z_cut."""
+        """沿 C→P_world 积分 alpha；返回相机深度 z_cut 处的透射率 T 与统计。"""
         c = np.asarray(cam["position"], dtype=np.float64)
         d = p_world - c
         dist = float(np.linalg.norm(d))
@@ -220,7 +220,7 @@ class RayOcclusionModel:
         z_hi: float | None = None,
         beam_offset_m: float = 0.05,
     ) -> dict[str, float]:
-        """Min T over center ray + 4 offsets in camera plane (catches plush beside the line)."""
+        """中心射线加相机平面四向偏移的最小 T（抓住射线旁的毛绒等）。"""
         r_c2w = np.asarray(cam["rotation"], dtype=np.float64)
         right = r_c2w[:, 0]
         up = r_c2w[:, 1]
