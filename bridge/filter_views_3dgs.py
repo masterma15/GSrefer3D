@@ -28,43 +28,14 @@ _REPO = Path(__file__).resolve().parents[1]
 if str(_REPO / "bridge") not in sys.path:
     sys.path.insert(0, str(_REPO / "bridge"))
 
-from frustum_segment import load_ply_xyz  # noqa: E402
-from gen_training_data import in_frame, world_to_image  # noqa: E402
 from ray_visibility import (  # noqa: E402
     RayOcclusionModel,
     cluster_depth_band,
+    load_ply_xyz,
     ray_reject_reason,
 )
-from unproject import Unprojector, CameraView  # noqa: E402
-
-# 预设包（在 main() 里于 filter_views 之前应用）。CLI 参数覆盖预设。
-FILTER_PRESETS: dict[str, dict[str, float | int | bool]] = {
-    "default": {},
-    "relaxed": {
-        "ray_min_transmittance": 0.32,
-        "ray_perp_radius": 0.10,
-        "min_cluster_in_frame": 5,
-        "ray_beam_offset_m": 0.06,
-    },
-  # 相对 relaxed，medicine_bottle 约多保留 10 个视角（tau 来自被拒帧的 T 分布）
-    "relaxed_plus": {
-        "ray_min_transmittance": 0.12,
-        "ray_perp_radius": 0.08,
-        "min_cluster_in_frame": 4,
-        "ray_beam_offset_m": 0.05,
-    },
-}
-
-
-def apply_filter_preset(args: argparse.Namespace) -> argparse.Namespace:
-    """把命名预设合并进 args（仅处理 FILTER_PRESETS 中列出的键）。"""
-    name = getattr(args, "filter_preset", "default") or "default"
-    if name not in FILTER_PRESETS:
-        sys.exit(f"[error] unknown --filter-preset {name!r}; choose from {list(FILTER_PRESETS)}")
-    preset = FILTER_PRESETS[name]
-    for key, val in preset.items():
-        setattr(args, key, val)
-    return args
+from repo_paths import to_repo_relative  # noqa: E402
+from unproject import CameraView, Unprojector, in_frame, world_to_image  # noqa: E402
 
 
 def select_cluster_indices(
@@ -191,7 +162,7 @@ def draw_overlay(
     img.save(out_path)
 
 
-def filter_views(args: argparse.Namespace) -> dict[str, Any]:
+def filter_views(args: argparse.Namespace, scene: RayOcclusionModel | None = None) -> dict[str, Any]:
     fused = json.loads(Path(args.fused).read_text(encoding="utf-8"))
     p_world = np.asarray(fused["P_world"], dtype=np.float64)
     fuse_support = int(fused.get("support", 0))
@@ -201,7 +172,19 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
         cluster_radius = max(cluster_radius, float(snap_distance) * 1.2)
 
     projections = json.loads(Path(args.projections).read_text(encoding="utf-8"))
-    xyz = load_ply_xyz(Path(args.ply))
+    ray_model: RayOcclusionModel | None = scene
+    if args.skip_ray_filter:
+        xyz = scene.xyz if scene is not None else load_ply_xyz(Path(args.ply))
+        ray_model = None
+    elif scene is not None:
+        xyz = scene.xyz
+    else:
+        ray_model = RayOcclusionModel.from_ply(
+            Path(args.ply),
+            perp_radius=args.ray_perp_radius,
+            sample_step=args.ray_sample_step,
+        )
+        xyz = ray_model.xyz
     cluster_idx, cluster_radius = select_cluster_indices(
         xyz,
         p_world,
@@ -211,14 +194,6 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
         max_radius=args.max_cluster_radius,
     )
     cluster_xyz = xyz[cluster_idx]
-
-    ray_model: RayOcclusionModel | None = None
-    if not args.skip_ray_filter:
-        ray_model = RayOcclusionModel.from_ply(
-            Path(args.ply),
-            perp_radius=args.ray_perp_radius,
-            sample_step=args.ray_sample_step,
-        )
 
     views_root = Path(args.views_root)
     out_dir = Path(args.out_dir)
@@ -337,9 +312,18 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
                         z_cut,
                         z_hi=z_hi,
                         beam_offset_m=args.ray_beam_offset_m,
+                        perp_radius=args.ray_perp_radius,
+                        sample_step=args.ray_sample_step,
                     )
                 else:
-                    ray_stats = ray_model.transmittance_before(cam, p_world, z_cut, z_hi=z_hi)
+                    ray_stats = ray_model.transmittance_before(
+                        cam,
+                        p_world,
+                        z_cut,
+                        z_hi=z_hi,
+                        perp_radius=args.ray_perp_radius,
+                        sample_step=args.ray_sample_step,
+                    )
                 entry["T_at_z_lo"] = ray_stats["T_at_z_cut"]
                 entry["ray_n_candidates"] = ray_stats["n_candidates"]
                 entry["ray_n_foreground"] = ray_stats["n_foreground"]
@@ -364,7 +348,7 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
         out_rec["v"] = v0
         out_rec["nx"] = nx0
         out_rec["ny"] = ny0
-        out_rec["rgb_path"] = str(rgb_path.resolve())
+        out_rec["rgb_path"] = to_repo_relative(rgb_path)
         kept.append(out_rec)
         per_view.append(entry)
         _maybe_overlay(view_id, u0, v0, u0, v0, vis)
@@ -384,10 +368,8 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
         "fuse_support": fuse_support,
         "cluster_size": int(cluster_idx.size),
         "cluster_radius_effective": cluster_radius,
-        "filter_preset": getattr(args, "filter_preset", "default"),
         "params": {
             "skip_ray_filter": args.skip_ray_filter,
-            "filter_preset": getattr(args, "filter_preset", "default"),
             "min_cluster_in_frame": args.min_cluster_in_frame,
             "depth_rel_slack": args.depth_rel_slack,
             "ray_min_transmittance": args.ray_min_transmittance,
@@ -435,6 +417,49 @@ def filter_views(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def filter_namespace(
+    *,
+    projections: Path,
+    fused: Path,
+    ply: Path,
+    views_root: Path,
+    out_dir: Path,
+    write_overlays: bool,
+    ray_min_transmittance: float = 0.45,
+    ray_perp_radius: float = 0.12,
+    ray_sample_step: float = 0.02,
+    ray_beam_offset_m: float = 0.05,
+    min_cluster_in_frame: int = 8,
+    ray_beam: bool = True,
+) -> argparse.Namespace:
+    """与本文件 CLI 默认值相同，供 e2e 在进程内调用。"""
+    return argparse.Namespace(
+        projections=projections,
+        fused=fused,
+        ply=ply,
+        views_root=views_root,
+        out_dir=out_dir,
+        write_overlays=write_overlays,
+        skip_ray_filter=False,
+        cluster_radius=0.05,
+        k_max=3000,
+        min_cluster_gaussians=150,
+        max_cluster_radius=0.35,
+        min_cluster_in_frame=min_cluster_in_frame,
+        depth_rel_slack=0.15,
+        ray_min_transmittance=ray_min_transmittance,
+        ray_perp_radius=ray_perp_radius,
+        ray_sample_step=ray_sample_step,
+        ray_z_slack=0.01,
+        ray_beam=ray_beam,
+        ray_beam_offset_m=ray_beam_offset_m,
+        frame_margin=10,
+        inv_eps=1e-3,
+        support_warn_below=5,
+        no_expand_radius_to_snap=False,
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="3DGS ray visibility filter for projections.")
     ap.add_argument("--projections", required=True)
@@ -442,12 +467,6 @@ def main() -> None:
     ap.add_argument("--ply", required=True)
     ap.add_argument("--views-root", required=True)
     ap.add_argument("--out-dir", required=True)
-    ap.add_argument(
-        "--filter-preset",
-        choices=tuple(FILTER_PRESETS.keys()),
-        default="default",
-        help="relaxed / relaxed_plus: looser ray T (relaxed_plus ~+10 views on small objects)",
-    )
     ap.add_argument(
         "--skip-ray-filter",
         action="store_true",
@@ -491,7 +510,6 @@ def main() -> None:
     ap.add_argument("--no-expand-radius-to-snap", action="store_true")
     ap.add_argument("--no-overlays", action="store_true")
     args = ap.parse_args()
-    args = apply_filter_preset(args)
     args.write_overlays = not args.no_overlays
     filter_views(args)
 

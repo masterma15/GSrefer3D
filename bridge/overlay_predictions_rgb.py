@@ -28,12 +28,12 @@ from typing import Any
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "bridge"))
 
+from repo_paths import resolve_data_path  # noqa: E402
 from unproject import CameraView, Unprojector  # noqa: E402
 
 
 def _rel(root: Path, p: str | Path) -> Path:
-    pp = Path(p)
-    return pp if pp.is_absolute() else (root / pp)
+    return resolve_data_path(p, root=root)
 
 
 def _inlier_keys(fused: dict[str, Any] | None) -> set[tuple[int, int]] | None:
@@ -51,33 +51,30 @@ def _inlier_keys(fused: dict[str, Any] | None) -> set[tuple[int, int]] | None:
     return out
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Overlay RoboRefer (nx,ny) on rgb/view_*.png (matches fuse pixel convention).",
-    )
-    ap.add_argument("--root", type=Path, required=True, help="Custom-view root (parent of rgb/)")
-    ap.add_argument("--predictions", type=Path, required=True, help="predictions.json")
-    ap.add_argument("--fused", type=Path, default=None, help="Optional fused.json for inlier coloring")
-    ap.add_argument("--out-dir", type=Path, default=None, help="Output folder (default: <root>/overlays_rgb)")
-    ap.add_argument("--radius", type=int, default=14, help="Circle radius in pixels")
-    args = ap.parse_args()
-
+def write_prediction_overlays(
+    root: Path,
+    predictions_path: Path,
+    fused_path: Path | None,
+    out_dir: Path,
+    *,
+    radius: int = 14,
+) -> int:
     try:
         from PIL import Image, ImageDraw
     except ImportError as e:
         raise SystemExit("install pillow: pip install pillow") from e
 
-    root = args.root.resolve()
-    out_dir = (args.out_dir or (root / "overlays_rgb")).resolve()
+    root = root.resolve()
+    out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fused: dict[str, Any] | None = None
-    if args.fused is not None:
-        with args.fused.open("r", encoding="utf-8") as f:
+    if fused_path is not None:
+        with fused_path.open("r", encoding="utf-8") as f:
             fused = json.load(f)
     inlier_keys = _inlier_keys(fused)
 
-    with args.predictions.open("r", encoding="utf-8") as f:
+    with predictions_path.open("r", encoding="utf-8") as f:
         pred = json.load(f)
 
     n_written = 0
@@ -120,7 +117,7 @@ def main() -> None:
                     fill = (80, 220, 120) if is_in else (255, 140, 40)
                 else:
                     fill = (255, 60, 40)
-                r = args.radius
+                r = radius
                 draw.ellipse([u - r, vv - r, u + r, vv + r], outline=(255, 255, 255), width=3, fill=fill)
                 draw.text((u + r + 2, vv - 6), f"({nx:.3f},{ny:.3f})", fill=(255, 255, 0))
 
@@ -130,6 +127,22 @@ def main() -> None:
         print(f"[ok] {out_path}")
 
     print(f"[summary] wrote {n_written} overlay(s) under {out_dir}")
+    return n_written
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description="Overlay RoboRefer (nx,ny) on rgb/view_*.png (matches fuse pixel convention).",
+    )
+    ap.add_argument("--root", type=Path, required=True, help="Custom-view root (parent of rgb/)")
+    ap.add_argument("--predictions", type=Path, required=True, help="predictions.json")
+    ap.add_argument("--fused", type=Path, default=None, help="Optional fused.json for inlier coloring")
+    ap.add_argument("--out-dir", type=Path, default=None, help="Output folder (default: <root>/overlays_rgb)")
+    ap.add_argument("--radius", type=int, default=14, help="Circle radius in pixels")
+    args = ap.parse_args()
+    root = args.root.resolve()
+    out_dir = (args.out_dir or (root / "overlays_rgb")).resolve()
+    write_prediction_overlays(root, args.predictions, args.fused, out_dir, radius=args.radius)
 
 
 if __name__ == "__main__":

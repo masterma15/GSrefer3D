@@ -11,9 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
-from gen_training_data import world_to_image
-from ray_visibility import RayOcclusionModel, _quat_to_rot
-from unproject import CameraView, Unprojector
+from ray_visibility import RayOcclusionModel, alpha_on_ray
+from unproject import CameraView, Unprojector, world_to_image
 
 
 @dataclass(frozen=True)
@@ -50,31 +49,8 @@ def _gaussian_alpha_on_ray(
     C: np.ndarray,
     d: np.ndarray,
 ) -> np.ndarray:
-    """每个高斯的 alpha 权重（不透明度 × 射线上的高斯衰减）。"""
-    mu = model.xyz[idx]
-    opacity = model.opacity[idx]
-    scales = model.scales[idx]
-    rot = model.rot[idx]
-    v = mu - C
-    t_ray = v @ d
-    closest = C + t_ray[:, None] * d
-    delta = mu - closest
-    r = _quat_to_rot(rot)
-    s = np.zeros((mu.shape[0], 3, 3), dtype=np.float64)
-    s[:, 0, 0] = scales[:, 0]
-    s[:, 1, 1] = scales[:, 1]
-    s[:, 2, 2] = scales[:, 2]
-    l_mat = np.matmul(r, s)
-    cov = np.matmul(l_mat, np.transpose(l_mat, (0, 2, 1)))
-    power = np.empty(mu.shape[0], dtype=np.float64)
-    for i in range(mu.shape[0]):
-        try:
-            inv = np.linalg.inv(cov[i])
-            power[i] = float(delta[i] @ inv @ delta[i])
-        except np.linalg.LinAlgError:
-            power[i] = 1e6
-    g = np.exp(-0.5 * np.clip(power, 0.0, 50.0))
-    return np.clip(opacity * g, 0.0, 0.99)
+    """射线上的 alpha。计算在 ``ray_visibility.alpha_on_ray``。"""
+    return alpha_on_ray(model.xyz[idx], model.opacity[idx], model.scales[idx], model.rot[idx], C, d)
 
 
 def refine_z_on_ray(

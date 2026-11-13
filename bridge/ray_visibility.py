@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from gen_training_data import world_to_image
+from unproject import CameraView, in_frame, world_to_image
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -76,10 +76,45 @@ def load_ply_gaussians(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, 
     return xyz, opacity, scales, rot
 
 
+def alpha_on_ray(
+    mu: np.ndarray,
+    opacity: np.ndarray,
+    scales: np.ndarray,
+    rot: np.ndarray,
+    c: np.ndarray,
+    d: np.ndarray,
+) -> np.ndarray:
+    """每个高斯在射线上的 alpha：不透明度 × exp(-0.5 * 马氏距离²)。"""
+    v = mu - c
+    t_ray = v @ d
+    closest = c + t_ray[:, None] * d
+    delta = mu - closest
+    r = _quat_to_rot(rot)
+    s = np.zeros((mu.shape[0], 3, 3), dtype=np.float64)
+    s[:, 0, 0] = scales[:, 0]
+    s[:, 1, 1] = scales[:, 1]
+    s[:, 2, 2] = scales[:, 2]
+    l_mat = np.matmul(r, s)
+    cov = np.matmul(l_mat, np.transpose(l_mat, (0, 2, 1)))
+    power = np.empty(mu.shape[0], dtype=np.float64)
+    for i in range(mu.shape[0]):
+        try:
+            inv = np.linalg.inv(cov[i])
+            power[i] = float(delta[i] @ inv @ delta[i])
+        except np.linalg.LinAlgError:
+            power[i] = 1e6
+    g = np.exp(-0.5 * np.clip(power, 0.0, 50.0))
+    return np.clip(opacity * g, 0.0, 0.99)
+
+
+def load_ply_xyz(path: Path) -> np.ndarray:
+    """只读 ply 的 xyz。"""
+    xyz, _, _, _ = load_ply_gaussians(path)
+    return xyz
+
+
 def cluster_depth_band(cluster_xyz: np.ndarray, cam: dict, *, frame_margin: int, w: int, h: int) -> tuple[float, float] | None:
     """画幅内簇点的相机深度范围 [z_lo, z_hi]。"""
-    from gen_training_data import in_frame
-
     zs: list[float] = []
     for p in cluster_xyz:
         u, v, z = world_to_image(p, cam)
@@ -91,9 +126,7 @@ def cluster_depth_band(cluster_xyz: np.ndarray, cam: dict, *, frame_margin: int,
 
 
 def _world_to_cam_batch(p: np.ndarray, cam: dict) -> np.ndarray:
-    r_c2w = np.asarray(cam["rotation"], dtype=np.float64)
-    c = np.asarray(cam["position"], dtype=np.float64)
-    return (p - c) @ r_c2w
+    return CameraView.from_camera_dict(cam).world_to_cam_points(p)
 
 
 @dataclass
@@ -126,15 +159,25 @@ class RayOcclusionModel:
             _tree=tree,
         )
 
-    def _candidate_indices(self, C: np.ndarray, d: np.ndarray, t_end: float) -> np.ndarray:
+    def _candidate_indices(
+        self,
+        C: np.ndarray,
+        d: np.ndarray,
+        t_end: float,
+        perp_radius: float | None = None,
+        sample_step: float | None = None,
+    ) -> np.ndarray:
+        """沿射线取候选。半径和步长按这次查询传入，缺省用构造时的值。"""
         assert self._tree is not None
+        radius = self.perp_radius if perp_radius is None else float(perp_radius)
+        step = self.sample_step if sample_step is None else float(sample_step)
         idx: set[int] = set()
-        t = max(self.sample_step, 0.01)
+        t = max(step, 0.01)
         while t <= t_end + 1e-6:
             pt = C + d * t
-            for j in self._tree.query_ball_point(pt, self.perp_radius):
+            for j in self._tree.query_ball_point(pt, radius):
                 idx.add(int(j))
-            t += self.sample_step
+            t += step
         if not idx:
             return np.zeros(0, dtype=np.int64)
         return np.fromiter(idx, dtype=np.int64)
@@ -146,6 +189,8 @@ class RayOcclusionModel:
         z_cut: float,
         *,
         z_hi: float | None = None,
+        perp_radius: float | None = None,
+        sample_step: float | None = None,
     ) -> dict[str, float]:
         """沿 C→P_world 积分 alpha；返回相机深度 z_cut 处的透射率 T 与统计。"""
         c = np.asarray(cam["position"], dtype=np.float64)
@@ -155,7 +200,7 @@ class RayOcclusionModel:
             return {"T_at_z_cut": 0.0, "n_candidates": 0, "n_foreground": 0}
         d = d / dist
         t_end = dist * 1.05 if z_hi is None else dist * 1.2
-        idx = self._candidate_indices(c, d, t_end)
+        idx = self._candidate_indices(c, d, t_end, perp_radius, sample_step)
         if idx.size == 0:
             return {"T_at_z_cut": 1.0, "n_candidates": 0, "n_foreground": 0}
 
@@ -166,25 +211,7 @@ class RayOcclusionModel:
 
         v = mu - c
         t_ray = v @ d
-        closest = c + t_ray[:, None] * d
-        delta = mu - closest
-
-        r = _quat_to_rot(rot)
-        s = np.zeros((mu.shape[0], 3, 3), dtype=np.float64)
-        s[:, 0, 0] = scales[:, 0]
-        s[:, 1, 1] = scales[:, 1]
-        s[:, 2, 2] = scales[:, 2]
-        l_mat = np.matmul(r, s)
-        cov = np.matmul(l_mat, np.transpose(l_mat, (0, 2, 1)))
-        power = np.empty(mu.shape[0], dtype=np.float64)
-        for i in range(mu.shape[0]):
-            try:
-                inv = np.linalg.inv(cov[i])
-                power[i] = float(delta[i] @ inv @ delta[i])
-            except np.linalg.LinAlgError:
-                power[i] = 1e6
-        g = np.exp(-0.5 * np.clip(power, 0.0, 50.0))
-        alpha = np.clip(opacity * g, 0.0, 0.99)
+        alpha = alpha_on_ray(mu, opacity, scales, rot, c, d)
 
         p_cam = _world_to_cam_batch(mu, cam)
         z_cam = p_cam[:, 2]
@@ -219,6 +246,8 @@ class RayOcclusionModel:
         *,
         z_hi: float | None = None,
         beam_offset_m: float = 0.05,
+        perp_radius: float | None = None,
+        sample_step: float | None = None,
     ) -> dict[str, float]:
         """中心射线加相机平面四向偏移的最小 T（抓住射线旁的毛绒等）。"""
         r_c2w = np.asarray(cam["rotation"], dtype=np.float64)
@@ -231,7 +260,9 @@ class RayOcclusionModel:
         n_cand = 0
         n_fg = 0
         for t_world in targets:
-            st = self.transmittance_before(cam, t_world, z_cut, z_hi=z_hi)
+            st = self.transmittance_before(
+                cam, t_world, z_cut, z_hi=z_hi, perp_radius=perp_radius, sample_step=sample_step
+            )
             t_min = min(t_min, st["T_at_z_cut"])
             n_cand = max(n_cand, st["n_candidates"])
             n_fg = max(n_fg, st["n_foreground"])

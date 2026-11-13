@@ -10,6 +10,7 @@ demo/*
 !demo/teaser_train_data.png
 !demo/teaser_depth_ablation.png
 !demo/teaser_gaussian_seg.png
+!demo/teaser_text_only_ablation.png
 !demo/shaver.gif
 !demo/rabbit.gif
 !demo/golden_retriever.gif
@@ -22,16 +23,21 @@ demo/*
 docs/*
 !docs/UPSTREAM_SETUP.md
 !docs/RESULTS.md
+!docs/CHANGELOG.md
 !docs/depth_compare_batch.json
 !docs/results_2d_eval.json
 !docs/results_2d_eval_tape.json
 !docs/results_gaussian_seg.json
+!docs/ablation_text_only.json
 !docs/bbox_data2.json
 !docs/bbox_labels/
 !docs/bbox_labels/**
 docs/bbox_labels/*.bin
 docs/mil_cv_assets/
 docs/mil_cv_selected/
+
+# Root release notes (also mirrored conceptually in VERSION)
+# VERSION and CHANGELOG.md at repo root are tracked.
 
 __pycache__/
 *.py[cod]

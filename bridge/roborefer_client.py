@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """针对 3DGS 自定义视角目录的批量 RoboRefer 客户端。
 
-期望的目录布局（由 ``3DGS/render.py --custom_views`` 生成，默认 36 个视角）：
+期望的目录布局（由 ``3DGS/render.py --custom_views`` 生成，默认 108 个视角）：
 
   <root>/
-    rgb/view_NNN.png          # N 个视角（默认 36，来自 3DGS/render.py --custom_views）
+    rgb/view_NNN.png          # N 个视角（默认 108，来自 3DGS/render.py --custom_views）
     depth/view_NNN.png        # 8-bit 逆深度风格 PNG，送给 RoboRefer
     depth_raw/view_NNN.npy    # float32，留给下游反投影
     camera_params/view_NNN.json

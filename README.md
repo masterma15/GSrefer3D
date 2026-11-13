@@ -12,7 +12,7 @@ Research integration repo — original code is mainly [`bridge/`](bridge/). Upst
 
 **One command** ([`bridge/run_bridge_e2e.py`](bridge/run_bridge_e2e.py)): trained 3DGS model + text prompt → per-object SFT pack (`question.json` + masks) + frustum-voted Gaussians + SIBR iteration. Internally: render → RoboRefer API → fuse **seed** → project / ray filter → DINO+SAM2 → refine → vote → inject. `--skip-render` reuses an existing view pack.
 
-> **Note:** `P_world` / `fused.json` is only a mask seed. The official 3D output is the **voted Gaussian set** (`gaussian_seg.json`). Historical 469-sample SFT used invdepth + snap; the fuse CLI default is now `depth_mode=ray`. Do not treat seed-point OBB hit tables as the 3D metric.
+> **Note:** `P_world` / `fused.json` is only a mask seed. The official 3D output is the **voted Gaussian set** (`gaussian_seg.json`). Primary SFT is **`data2_sft_ray` (629, visible-centroid)**; historical 469 mask-centroid pack archived. Fuse CLI default is `depth_mode=ray`. Do not treat seed-point OBB hit tables as the 3D metric.
 
 ---
 
@@ -99,7 +99,7 @@ Apply the four small edits in [`patches/roborefer/INTEGRATION.md`](patches/robor
 | Depth Anything V2 ViT-L | `weights/depth_anything_v2_vitl.pth` | [depth-anything/Depth-Anything-V2-Large](https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth) |
 | SAM 2.1 Hiera-L | `weights/sam2.1_hiera_large.pt` | [facebook/sam2.1](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt) |
 | Grounding DINO Swin-T | `weights/groundingdino_swint_ogc.pth` | [IDEA-Research release](https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth) |
-| data2 LoRA (optional) | `RoboRefer-2B-SFT-data2-merged/` | merge local LoRA; else use the 2B base |
+| data2 ray LoRA (optional) | `RoboRefer-2B-SFT-data2-ray-merged/` | primary merged LoRA; historical: `…-data2-merged/` |
 
 ```bash
 # from repo root (WSL or Linux)
@@ -221,11 +221,12 @@ Full tables and run IDs: **[`docs/RESULTS.md`](docs/RESULTS.md)**.
 |------|------|----------------|
 | **1** | Depth ablation (unproject z₀ only) | [`depth_compare_batch.json`](docs/depth_compare_batch.json) |
 | **2** | Manual **OBB** in CloudCompare (11 objects) | [`bbox_data2.json`](docs/bbox_data2.json), [`docs/bbox_labels/`](docs/bbox_labels/) |
-| **3** | **Initial fusion** (invdepth + snap) → mask seed + 469 SFT pack | `fused.json` (seed only) |
-| **4** | **LoRA** SFT on `data2_location` | `RoboRefer-2B-SFT-data2-merged` |
-| **5** | **Base vs LoRA** — in-domain 2D + hold-out tape | [`results_2d_eval.json`](docs/results_2d_eval.json), overlays |
+| **3** | Fusion → mask seed; **ray-visible** SFT pack (**629**) | `data2_sft_ray` |
+| **4** | **LoRA** on `data2_location_ray` | `RoboRefer-2B-SFT-data2-ray-merged` |
+| **5** | **Base vs LoRA_ray** — in-domain 2D + hold-out tape | [`results_2d_eval_ray.json`](docs/results_2d_eval_ray.json) |
 | **6** | **RefSpatial-Expand-Bench** (OOD) | Location / Placement % |
 | **7** | **Frustum-vote 3D instance** vs hand OBB | [`results_gaussian_seg.json`](docs/results_gaussian_seg.json) |
+| **8** | **Referring-point ablation** (text-only DINO boxes, same vote) | [`ablation_text_only.json`](docs/ablation_text_only.json) |
 
 ---
 
@@ -285,24 +286,24 @@ Pipeline: seed **`P_world`** → [`gen_training_data.py`](bridge/gen_training_da
 
 ### 4 · LoRA fine-tuning
 
-**2B LoRA** (1 epoch) on mixture **`data2_location`** → merged weights **`RoboRefer-2B-SFT-data2-merged`** (API). Base = **`RoboRefer-2B-SFT`** without adapter.
+**2B LoRA** (1 epoch) on mixture **`data2_location_ray`** (`training_data/data2_sft_ray/`, **629** RGB-D, visible-centroid labels; tape **excluded**) → merged **`RoboRefer-2B-SFT-data2-ray-merged`**. Base = **`RoboRefer-2B-SFT`**. Historical 469 / `data2-merged` kept for archive only.
 
 ---
 
-### 5 · Base vs LoRA — in-domain 2D and hold-out
+### 5 · Base vs LoRA_ray — in-domain 2D and hold-out (**primary**)
 
-Same **72-view** render pack and **initial fusion** settings; only the RoboRefer checkpoint changes.
+Same **72-view** `test2` pack; prompt = *center of the visible part*; GT = `data2_sft_ray` (not the old 469 mask-centroid pack).
 
-**In-domain (10 objects, synthetic 2D GT):** LoRA **median L2 ≤ Base on all 10/10**.
+**In-domain (10 objects):** LoRA_ray **median L2 ≤ Base on all 10/10**. Mean of per-object medians **0.052 → 0.012**.
 
-| Object | Base median L2 | LoRA median L2 | Δ |
-|--------|----------------|----------------|---|
-| Umbrella | 0.067 | **0.011** | −0.056 |
-| Golden retriever | 0.062 | **0.008** | −0.053 |
-| Brown rabbit | 0.037 | **0.007** | −0.031 |
-| Golden bowl | 0.009 | **0.003** | −0.006 |
+| Object | Base median L2 | LoRA_ray median L2 | Δ |
+|--------|----------------|---------------------|---|
+| Cookie bag | 0.116 | **0.021** | -0.095 |
+| Umbrella | 0.101 | **0.016** | -0.085 |
+| Golden retriever | 0.072 | **0.007** | -0.064 |
+| Electric shaver | 0.055 | **0.012** | -0.042 |
 
-Full table: [`docs/RESULTS.md`](docs/RESULTS.md) §2 · [`results_2d_eval.json`](docs/results_2d_eval.json).
+Full table: [`docs/RESULTS.md`](docs/RESULTS.md) §2 · [`results_2d_eval_ray.json`](docs/results_2d_eval_ray.json).
 
 **Overlays** (3 views × Base | LoRA; green = fuse inliers):
 
@@ -313,14 +314,14 @@ Full table: [`docs/RESULTS.md`](docs/RESULTS.md) §2 · [`results_2d_eval.json`]
 | Brown rabbit | ![Brown rabbit — Base vs LoRA](demo/teaser_base_lora_rabbit.png) |
 | Electric shaver | ![Electric shaver — Base vs LoRA](demo/teaser_base_lora_shaver.png) |
 
-**Hold-out — double-sided tape** (not in 469 SFT; **not** in the 10-object 2D table). GT = SAM2 mask centroid (`training_data/data2_tape/question.json`, 46 views).
+**Hold-out — double-sided tape** (not in **629** ray SFT; **not** in the 10-object 2D table). Prompt = visible-center (updated in `question.json`). GT = SAM2 mask centroid (`data2_tape/question.json`, **42** views).
 
 | Group | n | median L2↓ | mean L2 | %&lt;0.05 | Δ median |
 |-------|---|------------|---------|----------|----------|
-| Base | 46 | 0.0214 | 0.1666 | 56.5% | — |
-| LoRA | 46 | **0.0132** | 0.1528 | 63.0% | **−0.0082** |
+| Base | 42 | 0.0186 | 0.1451 | 64.3% | — |
+| LoRA_ray | 42 | **0.0135** | 0.1428 | 64.3% | **-0.0051** |
 
-JSON: [`docs/results_2d_eval_tape.json`](docs/results_2d_eval_tape.json). Overlay:
+JSON: [`docs/results_2d_eval_tape_ray.json`](docs/results_2d_eval_tape_ray.json). (Historical mask-centroid LoRA tape: [`results_2d_eval_tape.json`](docs/results_2d_eval_tape.json).) Overlay:
 
 ![Tape — Base left, LoRA right](demo/teaser_base_lora_tape.png)
 
@@ -328,18 +329,18 @@ JSON: [`docs/results_2d_eval_tape.json`](docs/results_2d_eval_tape.json). Overla
 
 ### 6 · RefSpatial-Expand-Bench (out-of-domain)
 
-| Task | Base | LoRA (data2) | Δ |
-|------|------|--------------|---|
-| **Location** | **50.21%** | 45.64% | −4.57 pp |
-| **Placement** | **48.50%** | 47.00% | −1.50 pp |
+| Task | Base | LoRA (469) | LoRA_ray (629) | Δ ray−Base |
+|------|------|------------|----------------|------------|
+| **Location** | **50.21%** | 45.64% | **49.38%** | −0.83 pp |
+| **Placement** | **48.50%** | 47.00% | 39.50% | −9.00 pp |
 
-Domain-adapted LoRA improves **in-domain data2** but **does not** improve this OOD bench (report separately from §5).
+Domain-adapted LoRA improves **in-domain data2**; OOD Location ≈ Base for ray LoRA (better than old 469). Placement drops more. Report separately from §5.
 
 ---
 
 ### 7 · 3D instance (frustum vote vs manual OBB)
 
-`P_world` is only a seed for Grounding DINO + SAM2 masks. The reported 3D result is the **voted Gaussian set** (`--min-vote-frac 0.5`). Primary metrics: vote-centroid in OBB, fraction of selected Gaussians inside the box, 2D mask reprojection precision.
+`P_world` is only a seed for Grounding DINO + SAM2 masks. The 3D result is the **voted Gaussian set**. Primary metrics: vote-centroid in OBB, fraction of selected Gaussians inside the box, 2D mask reprojection precision. The table below is the earlier fraction vote (`--min-vote-frac 0.5`) on the 10 training objects.
 
 ![Frustum-vote 3D instance vs hand OBB](demo/teaser_gaussian_seg.png)
 
@@ -351,9 +352,18 @@ Domain-adapted LoRA improves **in-domain data2** but **does not** improve this O
 
 Hair-clip seed can sit ~10 cm outside the thin OBB; the **vote centroid is inside**. Per-object table: [`docs/RESULTS.md`](docs/RESULTS.md) §2b · [`results_gaussian_seg.json`](docs/results_gaussian_seg.json).
 
+The default vote is now a two-pass view-angle weighted score. Rendered views are chosen by farthest-point sampling on directions from the captured cameras to their mean position, so the views that enter an object's vote still lie on an arc. Each view gets a mass that shrinks when many views share its direction. A pair's weight is those two masses times the angle between the view rays. A hit inside the image adds that weight; a miss inside the image subtracts it; a projection outside the frame or within 8 pixels of the border does not vote. The first pass keeps Gaussians with score > 0.03 and paints that set white. The second pass renders a footprint (only the white set is opaque) and a stain (every Gaussian stays opaque; the white set is white and the rest black). A pixel with a high footprint and a low stain is treated as occluded and does not vote. A low footprint outside the mask still subtracts. The final keep is score > 0.15. Visible weight for both renders is 0.5. The data2 comparison below, and the exported data3 packs, used an earlier vote at this same final keep, before the soft mask edge.
+
+On data2 the two votes were scored on the same masks and hand OBBs, 11 objects (the 10 training objects plus the tape hold-out). Both put the centroid inside the hand OBB on **11 / 11**. Mean in-box fraction stays **0.992**. Mean 2D mask reprojection precision goes from **0.788** to **0.804**. Umbrella goes from 0.655 to 0.778 (11402 → 19565 Gaussians, in-box fraction 1.000 → 0.998). The medicine bottle goes from 0.733 to 0.846. The cookie bag goes from 0.670 to 0.609, and its in-box fraction from 0.998 to 0.980.
+
+![data2 mask precision, fraction 0.5 vs view-angle](demo/teaser_vote_compare_data2.png)
+
+Per-object numbers: [`docs/results_vote_compare_data2.json`](docs/results_vote_compare_data2.json).
+
 ```powershell
 python bridge/eval_gaussian_seg.py --obj-glob training_data/data2_* --output docs/results_gaussian_seg.json
-python bridge/plot_gaussian_seg_teaser.py
+python tools/plot_gaussian_seg_teaser.py
+python tools/plot_vote_compare.py
 python bridge/inject_gaussian_seg.py --obj-glob training_data/data2_*
 ```
 
@@ -390,6 +400,38 @@ SIBR: magenta = selected ∩ OBB · lime = selected \ OBB · cyan = hand OBB · 
 
 ---
 
+### 8 · Referring-point ablation (same vote, text-only boxes)
+
+The 2D referring point is removed. The object name still goes to Grounding DINO. Kept views, `min-vote-frac 0.5`, `T(z)` weights, and the depth slice stay the same as the baseline masks in `training_data/data2_*`. Text-only masks live under `training_data/ablation_text_only/` and do not replace those baseline packs.
+
+The comparison is the **count** of voted Gaussians inside the hand OBB, and the count outside it. The in-box fraction is not the score: it can rise while the in-box count falls (hair clip 0.975 → 0.993, in-box count 3738 → 3074).
+
+![Referring-point ablation — in-box and out-of-box Gaussian counts](demo/teaser_text_only_ablation.png)
+
+Counts below are `round(n_selected × frac_selected_in_obb)` from [`docs/ablation_text_only.json`](docs/ablation_text_only.json).
+
+| Object | In-box with point | In-box text only | Δ in-box | Out-of-box with point | Out-of-box text only |
+|--------|------------------:|-----------------:|---------:|----------------------:|---------------------:|
+| Golden bowl | 13670 | 13670 | 0 | 233 | 233 |
+| Bracelet | 3722 | 3478 | −244 | 0 | 0 |
+| Cookie bag | 2961 | 2920 | −41 | 40 | 25 |
+| Golden retriever | 25925 | 25523 | −402 | 30 | 13 |
+| Hair clip | 3738 | 3074 | −664 | 95 | 22 |
+| Medicine bottle | 9541 | **0** | −9541 | 0 | 0 |
+| Brown rabbit | 103120 | 90722 | −12398 | 464 | 22484 |
+| Electric shaver | 6901 | 6862 | −39 | 57 | 44 |
+| Toy cake | 6451 | 9199 | +2748 | 0 | 93113 |
+| Umbrella | 19303 | 18105 | −1198 | 8 | 4 |
+| Tape (hold-out) | 5043 | **0** | −5043 | 220 | 13703 |
+
+The point changes the voted set. Medicine bottle text-only selects **no** Gaussians (the JSON centroid hit on that row is the empty-set fallback to `P_world`, not an object centroid). Tape’s voted set is entirely outside the box (0 in-box, 13703 out-of-box) and the centroid leaves the OBB. Toy cake’s centroid also leaves the OBB: in-box count rises by 2748 while out-of-box count rises from 0 to 93113. Rabbit loses 12398 in-box Gaussians and gains 22020 outside the box. Hair clip, umbrella, golden retriever, and bracelet lose hundreds to about a thousand in-box Gaussians even though their in-box fraction stays near 1. Bowl is unchanged; cookie bag and the shaver move by only a few dozen.
+
+```powershell
+python tools/plot_text_only_ablation.py
+```
+
+---
+
 ## Repository layout (what is in Git)
 
 | Path | In Git? | Role |
@@ -398,7 +440,8 @@ SIBR: magenta = selected ∩ OBB · lime = selected \ OBB · cyan = hand OBB · 
 | [`docs/bbox_data2.json`](docs/bbox_data2.json) | **Yes** | Manual OBB parameters (11 objects) |
 | [`docs/bbox_labels/*.png`](docs/bbox_labels/) | **Yes** | CloudCompare labeling screenshots |
 | [`docs/results_*.json`](docs/) | **Yes** | 2D L2 / frustum-vote 3D / depth ablation |
-| [`demo/`](demo/) | **Partial** | Pipeline, 2D teasers, frustum-vote chart, SIBR orbit GIFs (see `.gitignore`) |
+| [`docs/ablation_text_only.json`](docs/ablation_text_only.json) | **Yes** | Referring-point ablation counts |
+| [`demo/`](demo/) | **Partial** | Pipeline, 2D teasers, frustum-vote and referring-point charts, SIBR orbit GIFs (see `.gitignore`) |
 | `3DGS/gaussian-splatting/`, `RoboRefer-main/` | **No** | Clone locally — [Quick start](#quick-start) |
 | `training_data/`, `3DGS/test2/runs/` | **No** | Local experiments |
 
@@ -427,6 +470,9 @@ Cite upstream 3DGS and RoboRefer. This repo is a student research workspace, not
 | [docs/bbox_data2.json](docs/bbox_data2.json) | Manual OBB (11 objects) |
 | [docs/bbox_labels/](docs/bbox_labels/) | CloudCompare labeling PNGs |
 | [docs/depth_compare_batch.json](docs/depth_compare_batch.json) | Step 1 depth ablation |
-| [docs/results_2d_eval.json](docs/results_2d_eval.json) | Step 5 in-domain 2D |
-| [docs/results_2d_eval_tape.json](docs/results_2d_eval_tape.json) | Hold-out tape 2D (mask centroid) |
+| [docs/results_2d_eval_ray.json](docs/results_2d_eval_ray.json) | Step 5 primary in-domain 2D (ray GT) |
+| [docs/results_2d_eval_tape_ray.json](docs/results_2d_eval_tape_ray.json) | Hold-out tape 2D (ray-era) |
+| [docs/results_2d_eval.json](docs/results_2d_eval.json) | Historical in-domain 2D (469) |
+| [docs/results_2d_eval_tape.json](docs/results_2d_eval_tape.json) | Historical hold-out tape |
 | [docs/results_gaussian_seg.json](docs/results_gaussian_seg.json) | Step 7 frustum-vote 3D instance |
+| [docs/ablation_text_only.json](docs/ablation_text_only.json) | Step 8 referring-point ablation |

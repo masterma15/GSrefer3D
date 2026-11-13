@@ -38,19 +38,38 @@ class CameraView:
     camera_center: np.ndarray  # (3,)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "CameraView":
-        with Path(path).open("r", encoding="utf-8") as f:
-            d = json.load(f)
-        # render.py 保存的 view.R 是 3DGS 约定下的 R_c2w（相机到世界），反投影需要 R_w2c，故转置。
-        R_c2w = np.asarray(d["rotation"], dtype=np.float64)
+    def from_camera_dict(cls, d: dict) -> "CameraView":
+        """JSON 的 rotation 是 R_c2w，这里转置一次得到 R_w2c。"""
+        r_c2w = np.asarray(d["rotation"], dtype=np.float64)
         return cls(
             width=int(d["width"]),
             height=int(d["height"]),
             fov_x=float(d["fov_x"]),
             fov_y=float(d["fov_y"]),
-            R_w2c=R_c2w.T,
+            R_w2c=r_c2w.T,
             camera_center=np.asarray(d["position"], dtype=np.float64),
         )
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "CameraView":
+        with Path(path).open("r", encoding="utf-8") as f:
+            d = json.load(f)
+        return cls.from_camera_dict(d)
+
+    def project_world(self, p_world: np.ndarray) -> tuple[float, float, float]:
+        """世界点 → (u, v, z_cam)。z_cam <= 0 时 u、v 为 -1。"""
+        p = np.asarray(p_world, dtype=np.float64).reshape(3)
+        p_cam = self.R_w2c @ (p - self.camera_center)
+        z = float(p_cam[2])
+        if z <= 0:
+            return -1.0, -1.0, z
+        fx, fy, cx, cy = self.intrinsics
+        return float(fx * p_cam[0] / z + cx), float(fy * p_cam[1] / z + cy), z
+
+    def world_to_cam_points(self, xyz: np.ndarray) -> np.ndarray:
+        """批量：世界点 → 相机坐标。与 (P - C) @ R_c2w 相同。"""
+        c = self.camera_center.reshape(1, 3)
+        return (np.asarray(xyz, dtype=np.float64) - c) @ self.R_w2c.T
 
     @property
     def intrinsics(self) -> tuple[float, float, float, float]:
@@ -173,20 +192,22 @@ def linear_z_from_raster_npy(
     return None, val
 
 
+def world_to_image(p_world: np.ndarray, cam: dict) -> tuple[float, float, float]:
+    """返回 (u, v, z_cam)。z_cam <= 0 表示在相机后方。"""
+    return CameraView.from_camera_dict(cam).project_world(p_world)
+
+
+def in_frame(u: float, v: float, w: int, h: int, margin: int = 10) -> bool:
+    return margin <= u < w - margin and margin <= v < h - margin
+
+
 def unproject(
     nx: float,
     ny: float,
     cam: dict,
     depth_z: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    view = CameraView(
-        width=int(cam["width"]),
-        height=int(cam["height"]),
-        fov_x=float(cam["fov_x"]),
-        fov_y=float(cam["fov_y"]),
-        R_w2c=np.asarray(cam["rotation"], dtype=np.float64),
-        camera_center=np.asarray(cam["position"], dtype=np.float64),
-    )
+    view = CameraView.from_camera_dict(cam)
     fu = nx * view.width
     fv = ny * view.height
     return Unprojector(view).pixel_to_world(fu, fv, depth_z)

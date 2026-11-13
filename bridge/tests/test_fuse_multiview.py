@@ -171,6 +171,6 @@ def test_view_000_single_candidate_matches_unproject_baseline(tmp_path: Path) ->
         }],
     }
     result = fuse(predictions, inlier_radius=0.5, min_inv=1e-3)
-    expected = np.array([-1.61395605, 0.70258973, -0.19355955])
+    expected = np.array([0.61385237, 0.76297073, -0.04477087])
     np.testing.assert_allclose(result.P_world, expected, atol=1e-6)
     assert result.support == 1

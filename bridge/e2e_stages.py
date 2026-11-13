@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 BRIDGE = REPO / "bridge"
@@ -35,22 +36,10 @@ def guess_ply(model_path: Path | None) -> Path | None:
 
 
 def stage_render(args: argparse.Namespace) -> Path:
-    inner = REPO / "3DGS" / "gaussian-splatting"
+    inner = REPO / "3DGS"
     render_py = inner / "render.py"
     if not render_py.is_file():
-        legacy = REPO / "gaussian-splatting" / "gaussian-splatting" / "render.py"
-        if legacy.is_file():
-            inner = legacy.parent
-            render_py = legacy
-        else:
-            root_render = REPO / "3DGS" / "render.py"
-            if root_render.is_file():
-                inner = root_render.parent
-                render_py = root_render
-            else:
-                raise SystemExit(
-                    f"render.py not found at {inner / 'render.py'}, legacy {legacy}, or {root_render}"
-                )
+        raise SystemExit(f"render.py not found at {render_py}")
 
     out_dir = args.custom_views_out.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +70,7 @@ def stage_render(args: argparse.Namespace) -> Path:
     return out_dir
 
 
-def stage_fuse(args: argparse.Namespace) -> Path:
+def stage_fuse(args: argparse.Namespace, ray_model: Any | None = None) -> Path:
     sys.path.insert(0, str(BRIDGE))
     import fuse_multiview as fm  # noqa: WPS433
 
@@ -111,6 +100,7 @@ def stage_fuse(args: argparse.Namespace) -> Path:
         ray_pixel_radius=getattr(args, "ray_pixel_radius", 6.0),
         ray_z_band=getattr(args, "ray_z_band", 2.0),
         ray_min_alpha=getattr(args, "ray_min_alpha", 0.45),
+        ray_model=ray_model,
     )
 
     fused_out = Path(args.fused_output)
@@ -213,12 +203,11 @@ def run_mask_wsl(
     grounding_text_threshold: float,
     anchor_box_radius: int,
     max_box_area_ratio: float,
+    use_kept: bool = False,
 ) -> None:
     wsl_repo = to_wsl_path(REPO)
     out_wsl = to_wsl_path(out_dir)
-    kept_wsl = to_wsl_path(out_dir / "projections_kept.json")
     script = to_wsl_path(BRIDGE / "gen_training_data.py")
-    patch = to_wsl_path(BRIDGE / "patch_kept_rgb_paths.py")
     mask_cmd = [
         "python",
         script,
@@ -247,6 +236,8 @@ def run_mask_wsl(
         "--max-box-area-ratio",
         str(max_box_area_ratio),
     ]
+    if use_kept:
+        mask_cmd.append("--use-kept")
     inner = " && ".join(
         [
             f"cd {wsl_repo}",
@@ -255,7 +246,6 @@ def run_mask_wsl(
             "conda activate roborefer",
             f"export PYTHONPATH={wsl_repo}/GroundingDINO:$PYTHONPATH",
             "export HF_HUB_OFFLINE=1",
-            f'python {patch} "{kept_wsl}"',
             _bash_join(mask_cmd),
         ]
     )
@@ -278,13 +268,8 @@ def run_mask_local(
     grounding_text_threshold: float,
     anchor_box_radius: int,
     max_box_area_ratio: float,
+    use_kept: bool = False,
 ) -> None:
-    kept = out_dir / "projections_kept.json"
-    if kept.is_file():
-        sys.path.insert(0, str(BRIDGE))
-        from patch_kept_rgb_paths import patch_file  # noqa: WPS433
-
-        patch_file(kept)
     cmd = [
         sys.executable,
         str(BRIDGE / "gen_training_data.py"),
@@ -313,6 +298,8 @@ def run_mask_local(
         "--max-box-area-ratio",
         str(max_box_area_ratio),
     ]
+    if use_kept:
+        cmd.append("--use-kept")
     print(f"[e2e] $ {' '.join(cmd)}")
     rc = subprocess.call(cmd, cwd=str(REPO))
     if rc != 0:

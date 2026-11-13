@@ -43,27 +43,14 @@ import shutil
 import sys
 from pathlib import Path
 
+from repo_paths import resolve_data_path
+
 # 与 RefSpatial-Expand-Bench Location + RoboRefer API（use_api.py）对齐。
 DEFAULT_SUFFIX = (
     "Your answer should be formatted as a list of tuples, i.e. [(x1, y1)], "
     "where each tuple contains the x and y coordinates of a point satisfying the conditions above. "
     "The coordinates should be between 0 and 1, indicating the normalized pixel locations of the points in the image."
 )
-
-# 各物体的 RoboRefer prompt（与 e2e 的 run_manifest.json 一致）
-OBJECT_PROMPTS: dict[str, str] = {
-    "data2_bowl": "Please point to the gold-colored bowl on the desk.",
-    "data2_bracelet": "Please point to the white beaded bracelet on the desk.",
-    "data2_cookie": "Please point to the green square cookie package on the desk.",
-    "data2_golden_retriever": "Please point to the light yellow plush golden retriever toy.",
-    "data2_hair_clip": "Please point to the purple hair clip on the desk.",
-    "data2_medicine_bottle": "Please point to the medicine bottle on the desk.",
-    "data2_rabbit": "Please point to the brown plush rabbit.",
-    "data2_shaver": "Please point to the electric shaver on the desk.",
-    "data2_toy_cake": "Please point to the toy cake held by the brown plush rabbit.",
-    "data2_umbrella": "Please point to the black and red umbrella on the desk.",
-}
-
 
 def _slug(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
@@ -93,7 +80,7 @@ def _load_records(src_dir: Path, prefer: str, *, default_prompt: str = "") -> li
         return []
 
     proj = json.loads(proj_path.read_text(encoding="utf-8"))
-    prompt = default_prompt or OBJECT_PROMPTS.get(src_dir.name, "")
+    prompt = default_prompt
     out = []
     for rec in proj:
         out.append({
@@ -134,8 +121,7 @@ def export(args: argparse.Namespace) -> None:
             print(f"[skip] not a directory: {src_dir}")
             continue
         slug = _slug(src_dir.name.replace("data2_", "", 1))
-        obj_prompt = OBJECT_PROMPTS.get(src_dir.name, args.prompt or "")
-        records = _load_records(src_dir, args.source, default_prompt=obj_prompt)
+        records = _load_records(src_dir, args.source, default_prompt=args.prompt or "")
         if not records:
             print(f"[skip] no question.json / projections.json in {src_dir}")
             continue
@@ -165,9 +151,7 @@ def export(args: argparse.Namespace) -> None:
             human = f"{prompt.rstrip()} {DEFAULT_SUFFIX}".strip()
 
             rgb_rel = rec.get("rgb_path", f"image/view_{view_id}.png")
-            src_rgb = Path(rgb_rel)
-            if not src_rgb.is_file():
-                src_rgb = src_dir / rgb_rel
+            src_rgb = resolve_data_path(rgb_rel, root=src_dir)
             if not src_rgb.is_file() and views_root:
                 src_rgb = views_root / "rgb" / f"view_{view_id}.png"
             if not src_rgb.is_file():

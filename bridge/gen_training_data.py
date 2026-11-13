@@ -1,47 +1,22 @@
 #!/usr/bin/env python3
-"""生成 Location 任务训练数据（project -> filter -> mask -> refine）。
+"""生成 Location 任务训练数据（project -> mask -> refine）。
 
 各阶段见 ``main()`` 的 choices：project、mask、refine。
-若存在 ``projections_kept.json``，mask 阶段会读取它。默认 mask 模式：Grounding DINO + SAM2。
+mask 阶段默认只读 ``projections.json``。加上 ``--use-kept`` 时只读射线滤帧留下的 ``projections_kept.json``。
 refine 把答案贴到 mask 几何上。
 """
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
 
 import numpy as np
 
-
-# ---------------------------------------------------------------------------
-# 投影辅助函数
-# ---------------------------------------------------------------------------
-
-def _intrinsics(d: dict) -> tuple[float, float, float, float]:
-    w, h = int(d["width"]), int(d["height"])
-    fx = w / (2.0 * math.tan(float(d["fov_x"]) / 2.0))
-    fy = h / (2.0 * math.tan(float(d["fov_y"]) / 2.0))
-    return fx, fy, w / 2.0, h / 2.0
-
-
-def world_to_image(p_world: np.ndarray, cam: dict) -> tuple[float, float, float]:
-    """返回 (u, v, z_cam)。z_cam <= 0 表示在相机后方。"""
-    R_c2w = np.asarray(cam["rotation"], dtype=np.float64)
-    C = np.asarray(cam["position"], dtype=np.float64)
-    p_cam = R_c2w.T @ (p_world - C)
-    z = p_cam[2]
-    if z <= 0:
-        return -1.0, -1.0, z
-    fx, fy, cx, cy = _intrinsics(cam)
-    return fx * p_cam[0] / z + cx, fy * p_cam[1] / z + cy, z
-
-
-def in_frame(u: float, v: float, w: int, h: int, margin: int = 10) -> bool:
-    return margin <= u < w - margin and margin <= v < h - margin
+from repo_paths import resolve_data_path, to_repo_relative
+from unproject import in_frame, world_to_image
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +51,7 @@ def stage_project(args: argparse.Namespace) -> None:
             "nx": float(np.clip(u / w, 0.0, 1.0)),
             "ny": float(np.clip(v / h, 0.0, 1.0)),
             "width": w, "height": h,
-            "rgb_path": str(rgb_path.resolve()),
+            "rgb_path": to_repo_relative(rgb_path),
         })
 
     proj_path = out_dir / "projections.json"
@@ -89,28 +64,21 @@ def stage_project(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_rgb_path(path: str) -> Path:
-    """解析 rgb_path；必要时把 Windows 的 E:\\... 映射到 WSL 的 /mnt/e/...。"""
-    p = Path(path)
-    if p.is_file():
-        return p
-    raw = path.strip()
-    if len(raw) >= 3 and raw[1] == ":" and raw[0].isalpha():
-        drive = raw[0].lower()
-        rest = raw[2:].lstrip("\\/")
-        wsl = Path("/mnt") / drive / Path(rest.replace("\\", "/"))
-        if wsl.is_file():
-            return wsl
-    return p
+    """解析 rgb_path：相对仓库根、Windows 绝对路径或 /mnt 路径。"""
+    return resolve_data_path(path)
 
 
-def _load_projections(out_dir: Path) -> list[dict]:
-    kept = out_dir / "projections_kept.json"
-    proj = out_dir / "projections.json"
-    if kept.is_file():
+def _load_projections(out_dir: Path, *, use_kept: bool = False) -> list[dict]:
+    """默认只读画面内投影。``use_kept`` 时只读射线滤帧留下的视角。"""
+    if use_kept:
+        kept = out_dir / "projections_kept.json"
+        if not kept.is_file():
+            sys.exit(f"[error] no projections_kept.json in {out_dir}")
         return json.loads(kept.read_text(encoding="utf-8"))
+    proj = out_dir / "projections.json"
     if proj.is_file():
         return json.loads(proj.read_text(encoding="utf-8"))
-    sys.exit(f"[error] no projections_kept.json or projections.json in {out_dir}")
+    sys.exit(f"[error] no projections.json in {out_dir}")
 
 
 def _import_mask_grounding():
@@ -138,7 +106,7 @@ def stage_mask(args: argparse.Namespace) -> None:
     from PIL import Image
 
     out_dir = Path(args.out)
-    records = _load_projections(out_dir)
+    records = _load_projections(out_dir, use_kept=bool(getattr(args, "use_kept", False)))
     mask_dir = out_dir / "mask"
     mask_dir.mkdir(exist_ok=True)
 
@@ -168,18 +136,21 @@ def stage_mask(args: argparse.Namespace) -> None:
         area_penalty=args.area_penalty,
         tiny_box_penalty=args.tiny_box_penalty,
         compact_box_weight=args.compact_box_weight,
+        large_box_area_start=args.large_box_area_start,
         large_box_penalty=args.large_box_penalty,
         prefer_containing_point=args.prefer_containing_point,
         use_sam_point_prompt=args.sam_point_prompt,
         min_box_mask_iou=args.min_box_mask_iou,
         fallback_point_sam=not args.no_fallback_point_sam,
         fallback_point_sam_if_box_miss=args.fallback_point_sam_if_box_miss,
+        text_only=args.text_only,
     )
     gdino_model = load_grounding_dino(
         args.grounding_config, args.grounding_checkpoint, device=device
     )
     predictor = load_sam2_predictor(args.sam2_checkpoint, args.sam2_config)
-    print(f"[mask] mode=grounding caption={args.object!r} device={device}")
+    mode = "text_only" if gs_cfg.text_only else "grounding"
+    print(f"[mask] mode={mode} caption={args.object!r} device={device}")
 
     # 与 RefSpatial-Expand-Bench / use_api.py / export_spatial_train.DEFAULT_SUFFIX 对齐
     suffix = (
@@ -201,8 +172,6 @@ def stage_mask(args: argparse.Namespace) -> None:
         img_np = np.array(Image.open(rgb_path).convert("RGB"))
         w, h = rec["width"], rec["height"]
         u, v = float(rec["u"]), float(rec["v"])
-        meta = {}
-
         mask_bool, meta = grounding_sam_mask(
             img_np,
             u,
@@ -231,7 +200,7 @@ def stage_mask(args: argparse.Namespace) -> None:
             "object": args.object,
             "prompt": args.prompt,
             "suffix": suffix,
-            "rgb_path": str(rgb_path.resolve()),
+            "rgb_path": to_repo_relative(rgb_path),
             "mask_path": f"mask/{mask_fname}",
             "answer": [[rec["nx"], rec["ny"]]],
             "u": rec["u"],
@@ -316,6 +285,11 @@ def main() -> None:
     ap.add_argument("--fused", help="fused.json path")
     ap.add_argument("--views-root", help="dir with rgb/ and camera_params/")
     # mask 参数
+    ap.add_argument(
+        "--use-kept",
+        action="store_true",
+        help="mask only the views in projections_kept.json",
+    )
     ap.add_argument("--prompt", help="RoboRefer prompt string")
     ap.add_argument("--object", help="short object description")
     ap.add_argument("--sam2-checkpoint")
@@ -356,11 +330,27 @@ def main() -> None:
     ap.add_argument("--area-penalty", type=float, default=0.12)
     ap.add_argument("--tiny-box-penalty", type=float, default=0.40)
     ap.add_argument("--compact-box-weight", type=float, default=0.28)
-    ap.add_argument("--large-box-penalty", type=float, default=0.38)
+    ap.add_argument(
+        "--large-box-area-start",
+        type=float,
+        default=0.15,
+        help="Box area / image area above this starts the soft large-box deduction",
+    )
+    ap.add_argument(
+        "--large-box-penalty",
+        type=float,
+        default=0.38,
+        help="Penalty when a box is larger than the median candidate; boxes above --max-box-area-ratio are dropped",
+    )
     ap.add_argument(
         "--prefer-containing-point",
         action="store_true",
         help="Prefer boxes containing projection (legacy; usually worse for floating 3D anchors)",
+    )
+    ap.add_argument(
+        "--text-only",
+        action="store_true",
+        help="Rank remaining DINO boxes by score only; the referring point does not filter, score, or prompt SAM",
     )
     ap.add_argument(
         "--sam-point-prompt",

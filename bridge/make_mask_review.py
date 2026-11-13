@@ -21,30 +21,19 @@ import numpy as np
 
 
 def _resolve_path(path: str, base: Path, views_root: Path | None) -> Path:
-    p = Path(path)
-    if p.is_file():
-        return p
-    if not p.is_absolute():
-        cand = base / p
-        if cand.is_file():
-            return cand
-    raw = path.strip()
-    if len(raw) >= 3 and raw[1] == ":" and raw[0].isalpha():
-        drive = raw[0].lower()
-        rest = raw[2:].lstrip("\\/")
-        wsl = Path("/mnt") / drive / Path(rest.replace("\\", "/"))
-        if wsl.is_file():
-            return wsl
-        win = Path(raw)
-        if win.is_file():
-            return win
+    from repo_paths import resolve_data_path
+
+    hit = resolve_data_path(path, root=base)
+    if hit.is_file():
+        return hit
+    raw = path.strip().replace("\\", "/")
     if views_root is not None:
-        m = re.search(r"view_(\d+)\.png$", raw.replace("\\", "/"))
+        m = re.search(r"view_(\d+)\.png$", raw)
         if m:
             cand = views_root / "rgb" / f"view_{m.group(1)}.png"
             if cand.is_file():
                 return cand
-    return p
+    return hit
 
 
 def _draw_review(

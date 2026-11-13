@@ -4,10 +4,19 @@
 跨环境：本进程（envGS）只 subprocess / WSL，不 import 3DGS raster 或 SAM。
 ``P_world`` / ``fused.json`` 只作 mask 种子，3D 结果是 ``gaussian_seg.json``。
 
+vote 默认两次视线加权（softedge）后做 **门控 maskclose**：选点极少或少视角欠完整才补点，
+否则保持 softedge；最终 ``gaussian_seg.json`` + ``iteration_seg_<name>`` 都是门控后的结果。
+``--force-maskclose`` 绕过门控一律补点；``--no-maskclose`` 只 inject 投票结果。
+
+带方位的指代用 ``--views`` 只送一张图，点按该像素深度反投影，不再选邻视角。
+邻视角算法在 ``select_nearby_views.py``，端到端不调用，留作以后微调数据选视角。
+掩码和投票仍用这颗种子落在画面内的全部视角。
+
 产物::
 
     <out-dir>/                  question.json, mask/, gaussian_seg.json, fused.json
-    <views>/runs/<run_id>/      predictions.json, fused.json, overlays, run_manifest.json
+                                （另存 gaussian_seg_softedge.json；门控命中时 gaussian_seg 为 maskclose）
+    <views>/runs/<run_id>/      predictions.json, fused.json, gaussian_seg_white.json, overlays
     <model>/point_cloud/iteration_seg_<name>/
 """
 from __future__ import annotations
@@ -41,7 +50,7 @@ from e2e_stages import (  # noqa: E402
     stage_fuse,
     stage_render,
 )
-from frustum_segment import OBJ_DIR_TO_BBOX_KEY  # noqa: E402
+from bbox_keys import OBJ_DIR_TO_BBOX_KEY  # noqa: E402
 
 
 def _abs(p: Path) -> Path:
@@ -96,6 +105,43 @@ def _json_len(path: Path) -> int:
     if isinstance(data, list):
         return len(data)
     return 0
+
+
+# 射线滤帧留下的视角少于此数时，检测和投票改用全部画面内视角。
+RAY_FILTER_MIN_KEPT = 40
+
+
+def mask_uses_kept_views(kept: int, *, fallback: bool, min_kept: int = RAY_FILTER_MIN_KEPT) -> bool:
+    """滤帧开着时，默认检测只读留下的视角。回退开关打开且留下的太少，则不滤。"""
+    if not fallback:
+        return True
+    return int(kept) >= int(min_kept)
+
+
+def resolve_mask_use_kept(out_dir: Path, *, ray_filter: bool, fallback: bool) -> bool:
+    if not ray_filter:
+        return False
+    if not fallback:
+        return True
+    report_path = out_dir / "filter_report.json"
+    if not report_path.is_file():
+        raise SystemExit(f"--ray-filter-fallback 需要 {report_path}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    counts = report.get("counts") or {}
+    kept = int(counts.get("kept") or 0)
+    total = int(counts.get("input") or 0)
+    use_kept = mask_uses_kept_views(kept, fallback=True)
+    if use_kept:
+        print(
+            f"[e2e] ray filter kept {kept}/{total} >= {RAY_FILTER_MIN_KEPT}; "
+            "mask and vote use kept views"
+        )
+    else:
+        print(
+            f"[e2e] ray filter kept {kept}/{total} < {RAY_FILTER_MIN_KEPT}; "
+            "mask and vote use all in-frame views"
+        )
+    return use_kept
 
 
 def _resolve_bbox_key(name: str, bbox_key: str | None) -> str | None:
@@ -206,19 +252,9 @@ def _stage_query(
 
 
 def _stage_overlay(views_root: Path, predictions_path: Path, fused_path: Path, out_dir: Path) -> None:
-    cmd = [
-        sys.executable,
-        str(BRIDGE / "overlay_predictions_rgb.py"),
-        "--root",
-        str(views_root),
-        "--predictions",
-        str(predictions_path),
-        "--fused",
-        str(fused_path),
-        "--out-dir",
-        str(out_dir),
-    ]
-    _subprocess_rc(cmd, cwd=REPO)
+    from overlay_predictions_rgb import write_prediction_overlays
+
+    write_prediction_overlays(views_root, predictions_path, fused_path, out_dir)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -254,16 +290,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--skip-render", action="store_true", help="Same as --from query")
     ap.add_argument("--pause-after-mask", action="store_true", help="Stop after mask+review; continue with --from vote")
+    ap.add_argument(
+        "--ray-filter",
+        action="store_true",
+        help="After projection, drop views whose ray transmittance is below 0.45, then mask and vote only the kept views",
+    )
+    ap.add_argument(
+        "--ray-filter-fallback",
+        action="store_true",
+        help=(
+            "With --ray-filter: if fewer than 40 views remain, "
+            "mask and vote use every in-frame view instead of the kept list"
+        ),
+    )
     ap.add_argument("--bbox-key", type=str, default=None, help="Key in docs/bbox_data2.json for OBB overlay/eval")
     ap.add_argument("--bbox", type=Path, default=Path("docs/bbox_data2.json"))
     ap.add_argument("--clean", action="store_true", help="After success, delete overlays / review / rejected dumps")
 
     ap.add_argument("--iteration", type=int, default=None, help="Passed to render.py --iteration")
-    ap.add_argument("--num-custom-views", type=int, default=36, dest="num_custom_views")
+    ap.add_argument("--num-custom-views", type=int, default=108, dest="num_custom_views")
 
     ap.add_argument("--retry", type=int, default=3)
     ap.add_argument("--no-depth", action="store_true")
-    ap.add_argument("--views", type=int, nargs="+", default=None)
+    ap.add_argument(
+        "--views",
+        type=int,
+        nargs="+",
+        default=None,
+        help="只把这些视角送给指代。带方位时传一张，例如 --views 11。",
+    )
 
     ap.add_argument("--inlier-radius", type=float, default=5.0)
     ap.add_argument("--min-inv", type=float, default=1e-3)
@@ -278,7 +333,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--ray-min-alpha", type=float, default=0.45)
 
     ap.add_argument("--skip-overlay", action="store_true")
-    ap.add_argument("--filter-preset", default="default")
     ap.add_argument(
         "--use-wsl",
         action=argparse.BooleanOptionalAction,
@@ -298,6 +352,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--anchor-box-radius", type=int, default=64)
     ap.add_argument("--max-box-area-ratio", type=float, default=0.35)
     ap.add_argument("--review-alpha", type=float, default=0.45)
+    ap.add_argument(
+        "--vote-frac",
+        type=float,
+        default=None,
+        help="Use the legacy global fraction vote. Default is the two-pass pair vote (white > 0.03, final > 0.15).",
+    )
+    ap.add_argument(
+        "--force-maskclose",
+        action="store_true",
+        help="vote 后绕过门控，一律跑 maskclose（需默认 pair 投票的白集）",
+    )
+    ap.add_argument(
+        "--no-maskclose",
+        action="store_true",
+        help="vote 后不做 maskclose，直接 inject softedge/投票结果",
+    )
     return ap.parse_args(argv)
 
 
@@ -307,6 +377,10 @@ def main(argv: list[str] | None = None) -> None:
     from_stage = args.from_stage
     if args.skip_render and from_stage == "render":
         from_stage = "query"
+    if args.ray_filter_fallback and not args.ray_filter:
+        raise SystemExit("--ray-filter-fallback 要和 --ray-filter 一起用")
+    if args.force_maskclose and args.no_maskclose:
+        raise SystemExit("不要同时指定 --force-maskclose 与 --no-maskclose")
 
     model_path = _abs(args.model_path)
     views_root = _abs(args.custom_views_out)
@@ -336,6 +410,20 @@ def main(argv: list[str] | None = None) -> None:
     if ply_used is None or not ply_used.is_file():
         if _should_run("fuse", from_stage) or _should_run("filter", from_stage) or _should_run("vote", from_stage):
             raise SystemExit("--ply missing and no numeric point_cloud/iteration_*/point_cloud.ply under --model-path")
+    scene = None
+    if (
+        ply_used is not None
+        and ply_used.is_file()
+        and (
+            _should_run("fuse", from_stage)
+            or _should_run("filter", from_stage)
+            or _should_run("vote", from_stage)
+        )
+    ):
+        from ray_visibility import RayOcclusionModel
+
+        # 融合查询用 0.06 m / 0.025 m；拒帧在每次查询里另传 0.12 m / 0.02 m。
+        scene = RayOcclusionModel.from_ply(ply_used, perp_radius=args.ray_perp_radius, sample_step=0.025)
 
     run_id, run_dir = _resolve_run_dir(
         views_root=views_root,
@@ -366,6 +454,7 @@ def main(argv: list[str] | None = None) -> None:
         "run_dir": str(run_dir).replace("\\", "/"),
         "out_dir": str(out_dir).replace("\\", "/"),
         "fuse_ply": str(ply_used).replace("\\", "/") if ply_used else None,
+        "query_views": args.views,
     }
     _write_json(run_dir / "run_manifest.json", manifest)
     (run_dir / "prompt.txt").write_text(
@@ -389,6 +478,8 @@ def main(argv: list[str] | None = None) -> None:
         stage_render(rargs)
         require_views(views_root)
 
+    query_views = args.views
+
     if _should_run("query", from_stage):
         _stage_query(
             views_root=views_root,
@@ -397,7 +488,7 @@ def main(argv: list[str] | None = None) -> None:
             prompt=args.prompt,
             retry=args.retry,
             no_depth=args.no_depth,
-            views=args.views,
+            views=query_views,
         )
     elif _should_run("fuse", from_stage) and not predictions_path.is_file():
         raise SystemExit(f"--from {from_stage} needs {predictions_path} (pass --run-dir)")
@@ -418,7 +509,7 @@ def main(argv: list[str] | None = None) -> None:
             ray_z_band=args.ray_z_band,
             ray_min_alpha=args.ray_min_alpha,
         )
-        stage_fuse(fuse_ns)
+        stage_fuse(fuse_ns, ray_model=scene if args.depth_mode == "ray" else None)
         shutil.copy2(fused_run, fused_obj)
         if not args.skip_overlay:
             overlays_dir.mkdir(parents=True, exist_ok=True)
@@ -426,53 +517,60 @@ def main(argv: list[str] | None = None) -> None:
         else:
             print("[e2e] skip-overlay")
 
+    if (
+        not args.ray_filter
+        and (_should_run("filter", from_stage) or _should_run("mask", from_stage))
+        and (out_dir / "projections_kept.json").is_file()
+    ):
+        raise SystemExit(
+            f"{out_dir} 含有射线滤帧留下的 projections_kept.json。"
+            "未加 --ray-filter 时不会按透射率丢视角。请换一个新的 --out-dir，避免覆盖现有掩码和高斯。"
+        )
+
     if _should_run("filter", from_stage):
         fused_path = _resolve_fused(out_dir, run_dir)
-        _subprocess_rc(
-            [
-                sys.executable,
-                str(BRIDGE / "gen_training_data.py"),
-                "--stage",
-                "project",
-                "--fused",
-                str(fused_path),
-                "--views-root",
-                str(views_root),
-                "--out",
-                str(out_dir),
-            ],
-            cwd=REPO,
+        from gen_training_data import stage_project
+
+        stage_project(
+            argparse.Namespace(fused=fused_path, views_root=views_root, out=out_dir)
         )
         proj = out_dir / "projections.json"
         if not proj.is_file() or _json_len(proj) == 0:
             raise SystemExit("project produced no in-frame views")
-        filter_cmd = [
-            sys.executable,
-            str(BRIDGE / "filter_views_3dgs.py"),
-            "--projections",
-            str(proj),
-            "--fused",
-            str(fused_path),
-            "--ply",
-            str(ply_used),
-            "--views-root",
-            str(views_root),
-            "--out-dir",
-            str(out_dir),
-            "--filter-preset",
-            args.filter_preset,
-        ]
-        if args.skip_overlay:
-            filter_cmd.append("--no-overlays")
-        _subprocess_rc(filter_cmd, cwd=REPO)
-        kept = out_dir / "projections_kept.json"
-        if not kept.is_file() or _json_len(kept) == 0:
-            raise SystemExit("filter: no views kept")
+        if args.ray_filter:
+            from filter_views_3dgs import filter_namespace, filter_views
+
+            # 不复用融合时加载的射线模型。滤帧用自己的 0.12 m 半径和 0.02 m 步长。
+            filter_views(
+                filter_namespace(
+                    projections=proj,
+                    fused=fused_path,
+                    ply=ply_used,
+                    views_root=views_root,
+                    out_dir=out_dir,
+                    write_overlays=False,
+                )
+            )
+            kept = out_dir / "projections_kept.json"
+            if (
+                not args.ray_filter_fallback
+                and (not kept.is_file() or _json_len(kept) == 0)
+            ):
+                raise SystemExit("filter: no views kept")
+
+    use_kept = False
+    if _should_run("mask", from_stage) or _should_run("vote", from_stage):
+        use_kept = resolve_mask_use_kept(
+            out_dir,
+            ray_filter=args.ray_filter,
+            fallback=args.ray_filter_fallback,
+        )
 
     if _should_run("mask", from_stage):
-        kept = out_dir / "projections_kept.json"
-        if not kept.is_file():
-            raise SystemExit(f"--from mask needs {kept}")
+        proj_name = "projections_kept.json" if use_kept else "projections.json"
+        proj = out_dir / proj_name
+        if not proj.is_file():
+            raise SystemExit(f"--from mask needs {proj}")
         mask_kwargs = dict(
             out_dir=out_dir,
             prompt=args.prompt,
@@ -485,6 +583,7 @@ def main(argv: list[str] | None = None) -> None:
             grounding_text_threshold=args.grounding_text_threshold,
             anchor_box_radius=args.anchor_box_radius,
             max_box_area_ratio=args.max_box_area_ratio,
+            use_kept=use_kept,
         )
         if args.use_wsl:
             run_mask_wsl(**mask_kwargs)
@@ -493,19 +592,9 @@ def main(argv: list[str] | None = None) -> None:
         q_path = out_dir / "question.json"
         if not q_path.is_file() or _json_len(q_path) == 0:
             raise SystemExit("mask: question.json empty")
-        _subprocess_rc(
-            [
-                sys.executable,
-                str(BRIDGE / "make_mask_review.py"),
-                "--out",
-                str(out_dir),
-                "--views-root",
-                str(views_root),
-                "--alpha",
-                str(args.review_alpha),
-            ],
-            cwd=REPO,
-        )
+        from make_mask_review import export_object
+
+        export_object(out_dir, review_dir=None, views_root=views_root, alpha=args.review_alpha)
         _write_json(
             out_dir / "e2e_manifest.json",
             {
@@ -514,6 +603,9 @@ def main(argv: list[str] | None = None) -> None:
                 "name": args.name,
                 "object": args.object,
                 "prompt": args.prompt,
+                "ray_filter": bool(args.ray_filter),
+                "ray_filter_fallback": bool(args.ray_filter_fallback),
+                "mask_views": "kept" if use_kept else "in_frame",
             },
         )
         if args.pause_after_mask:
@@ -525,6 +617,8 @@ def main(argv: list[str] | None = None) -> None:
                 f"--custom-views-out {views_root} --prompt {args.prompt!r} "
                 f"--object {args.object!r} --name {args.name} --out-dir {out_dir} "
                 f"--from vote --run-dir {run_dir}"
+                + (" --ray-filter" if args.ray_filter else "")
+                + (" --ray-filter-fallback" if args.ray_filter_fallback else "")
             )
             _write_json(run_dir / "run_manifest.json", manifest)
             return
@@ -533,33 +627,41 @@ def main(argv: list[str] | None = None) -> None:
         q_path = out_dir / "question.json"
         if not q_path.is_file():
             raise SystemExit(f"--from vote needs {q_path}")
-        _subprocess_rc(
-            [
-                sys.executable,
-                str(BRIDGE / "gen_training_data.py"),
-                "--stage",
-                "refine",
-                "--out",
-                str(out_dir),
-            ],
-            cwd=REPO,
-        )
+        from gen_training_data import stage_refine
+
+        stage_refine(argparse.Namespace(out=out_dir, refine_mode="centroid"))
         fused_path = _resolve_fused(out_dir, run_dir)
-        _subprocess_rc(
-            [
-                sys.executable,
-                str(BRIDGE / "frustum_segment.py"),
-                "--obj-dir",
-                str(out_dir),
-                "--views-root",
-                str(views_root),
-                "--ply",
-                str(ply_used),
-                "--fused",
-                str(fused_path),
-            ],
-            cwd=REPO,
-        )
+        from frustum_segment import run_default_pair_vote, run_object
+
+        if args.vote_frac is not None:
+            run_object(
+                out_dir,
+                views_root=views_root,
+                ply=ply_used,
+                fused=fused_path,
+                min_vote=0.0,
+                min_vote_frac=float(args.vote_frac),
+                use_t_weight=True,
+                cluster_radius=None,
+                z_slack=0.15,
+                apply_depth_slice=False,
+                out_dir=None,
+                xyz=None if scene is None else scene.xyz,
+                ignore_kept=bool(args.ray_filter_fallback and not use_kept),
+            )
+        else:
+            run_default_pair_vote(
+                out_dir,
+                white_json=run_dir / "gaussian_seg_white.json",
+                final_out_dir=out_dir,
+                views_root=views_root,
+                ply=ply_used,
+                fused=fused_path,
+                cluster_radius=None,
+                z_slack=0.15,
+                ignore_kept=bool(args.ray_filter_fallback and not use_kept),
+                xyz=None if scene is None else scene.xyz,
+            )
         seg_path = out_dir / "gaussian_seg.json"
         if not seg_path.is_file():
             raise SystemExit("vote: gaussian_seg.json missing")
@@ -569,48 +671,92 @@ def main(argv: list[str] | None = None) -> None:
         if n_sel <= 0:
             raise SystemExit("vote selected 0 Gaussians")
 
+        # softedge 备份；门控命中时 gaussian_seg.json 会被 maskclose 覆盖。
+        softedge_bak = out_dir / "gaussian_seg_softedge.json"
+        shutil.copy2(seg_path, softedge_bak)
+        white_path = run_dir / "gaussian_seg_white.json"
+        maskclose_meta: dict[str, Any] = {
+            "mode": "off",
+            "enabled": False,
+            "softedge_backup": str(softedge_bak).replace("\\", "/"),
+            "white": str(white_path).replace("\\", "/"),
+        }
+        if args.no_maskclose:
+            maskclose_meta["mode"] = "disabled"
+            print("[e2e] maskclose skipped (--no-maskclose)", flush=True)
+        elif args.vote_frac is not None:
+            maskclose_meta["mode"] = "skipped_legacy_vote_frac"
+            print("[e2e] maskclose skipped (legacy --vote-frac has no softedge white)", flush=True)
+        elif not white_path.is_file():
+            maskclose_meta["mode"] = "skipped_no_white"
+            print(f"[e2e] maskclose skipped (missing {white_path})", flush=True)
+        else:
+            from postprocess_seg import mask_direct_vote, maskclose_gate_from_core
+
+            enable, reason, n_gate_sel, n_gate_views = maskclose_gate_from_core(seg)
+            if args.force_maskclose:
+                enable = True
+                reason = f"force_maskclose({reason})"
+                maskclose_meta["mode"] = "force"
+            else:
+                maskclose_meta["mode"] = "gated"
+            maskclose_meta["gate_reason"] = reason
+            maskclose_meta["n_selected"] = n_gate_sel
+            maskclose_meta["n_views_used"] = n_gate_views
+            print(
+                f"[e2e] maskclose gate enable={enable} reason={reason} "
+                f"n_selected={n_gate_sel} n_views={n_gate_views}",
+                flush=True,
+            )
+            if enable:
+                out = mask_direct_vote(
+                    softedge_bak,
+                    white_path,
+                    obj_dir=out_dir,
+                    out_json=seg_path,
+                )
+                pp = out.get("postprocess") if isinstance(out, dict) else None
+                if isinstance(pp, dict):
+                    pp["gate_reason"] = reason
+                    pp["gate_n_selected_core"] = n_gate_sel
+                    pp["gate_n_views_used"] = n_gate_views
+                    seg_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+                seg = out
+                n_sel = int(seg.get("n_selected") or 0)
+                maskclose_meta["enabled"] = True
+                maskclose_meta["n_selected_after"] = n_sel
+                print(f"[e2e] maskclose selected={n_sel}", flush=True)
+            else:
+                print("[e2e] keep softedge (gate skip)", flush=True)
+        manifest["maskclose"] = maskclose_meta
+
         bbox_key = _resolve_bbox_key(args.name, args.bbox_key)
         have_obb = _bbox_exists(bbox_path, bbox_key)
         inject_dir = model_path / "point_cloud" / f"iteration_seg_{args.name}"
-        inject_cmd = [
-            sys.executable,
-            str(BRIDGE / "inject_gaussian_seg.py"),
-            "--seg",
-            str(seg_path),
-            "--ply",
-            str(ply_used),
-            "--model-path",
-            str(model_path),
-            "--out-iteration-dir",
-            str(inject_dir),
-        ]
-        if have_obb:
-            inject_cmd.extend(["--bbox", str(bbox_path), "--object", bbox_key])
-        else:
-            inject_cmd.append("--no-obb")
-        _subprocess_rc(inject_cmd, cwd=REPO)
+        from inject_gaussian_seg import inject_gaussian_seg
+        from obb_geom import load_bbox
+
+        obb = None
+        if have_obb and bbox_key is not None:
+            obb = load_bbox(bbox_path)[bbox_key]["obb"]
+        inject_gaussian_seg(
+            ply=ply_used,
+            seg=seg,
+            out_iteration_dir=inject_dir,
+            obb=obb,
+            object_key=bbox_key,
+            add_obb=have_obb,
+        )
         manifest["sibr_iteration"] = f"seg_{args.name}"
         manifest["inject_dir"] = str(inject_dir).replace("\\", "/")
 
         if have_obb:
+            from eval_gaussian_seg import eval_one, summarize
+
             eval_out = out_dir / "eval_gaussian_seg.json"
-            _subprocess_rc(
-                [
-                    sys.executable,
-                    str(BRIDGE / "eval_gaussian_seg.py"),
-                    "--obj-dir",
-                    str(out_dir),
-                    "--bbox",
-                    str(bbox_path),
-                    "--object-key",
-                    bbox_key,
-                    "--views-root",
-                    str(views_root),
-                    "--output",
-                    str(eval_out),
-                ],
-                cwd=REPO,
-            )
+            result = eval_one(seg_path, bbox_path, object_key=bbox_key, views_root=views_root)
+            payload = {"summary": summarize([result]), "results": [result]}
+            _write_json(eval_out, payload)
             manifest["eval"] = str(eval_out).replace("\\", "/")
 
     if args.clean:

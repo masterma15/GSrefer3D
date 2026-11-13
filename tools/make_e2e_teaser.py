@@ -9,13 +9,13 @@
 示例::
 
   # hold-out 胶带（与 README §3 相同的 run）
-  python bridge/make_e2e_teaser.py --preset tape --output demo/teaser_base_lora_tape.png
+  python tools/make_e2e_teaser.py --preset tape --output demo/teaser_base_lora_tape.png
 
   # 域内雨伞 — 自动选相对 GT 的 LoRA 2D 增益最大的 3 个视角
-  python bridge/make_e2e_teaser.py --preset umbrella --output demo/teaser_base_lora_umbrella.png
+  python tools/make_e2e_teaser.py --preset umbrella --output demo/teaser_base_lora_umbrella.png
 
   # 显式指定 run 与视角
-  python bridge/make_e2e_teaser.py \\
+  python tools/make_e2e_teaser.py \\
     --base-run 20260519_170540_4c3b9a32 \\
     --lora-run 20260519_143457_4c3b9a32 \\
     --slug shaver --views 18 33 55 \\

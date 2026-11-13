@@ -60,6 +60,39 @@ def sibr_iteration_arg(out_iteration_dir: Path) -> str:
     return name
 
 
+def model_path_from_iteration_dir(out_iteration_dir: Path) -> Path | None:
+    """``.../output/<scene>/point_cloud/iteration_*`` → ``.../output/<scene>``。"""
+    p = out_iteration_dir.resolve()
+    if p.parent.name == "point_cloud":
+        return p.parent.parent
+    return None
+
+
+def model_path_from_ply(ply: Path) -> Path | None:
+    """``.../point_cloud/iteration_*/point_cloud.ply`` → 场景 model 根目录。"""
+    p = ply.resolve()
+    if p.name.lower() == "point_cloud.ply" and p.parent.parent.name == "point_cloud":
+        return p.parent.parent.parent
+    return None
+
+
+def resolve_sibr_model_path(
+    *,
+    out_iteration_dir: Path,
+    ply: Path | None = None,
+    model_path: Path | None = None,
+) -> Path:
+    """打印 SIBR ``-m``：优先写出目录，其次源 ply，最后显式 ``--model-path``。"""
+    for cand in (
+        model_path_from_iteration_dir(out_iteration_dir),
+        model_path_from_ply(ply) if ply is not None else None,
+        model_path.resolve() if model_path is not None else None,
+    ):
+        if cand is not None:
+            return cand
+    raise ValueError(f"无法从 {out_iteration_dir} 推断 SIBR -m 路径，请传 --model-path")
+
+
 def resolve_object_key(seg: dict[str, Any], object_key: str | None) -> str | None:
     if object_key:
         return object_key
@@ -269,6 +302,8 @@ def inject_gaussian_seg(
 
 
 def _warn_vote_frac(seg: dict[str, Any]) -> None:
+    if seg.get("pair_vote"):
+        return
     frac = seg.get("min_vote_frac")
     if frac is None:
         print(
@@ -293,6 +328,7 @@ def _load_seg(path: Path) -> dict[str, Any]:
 def _print_sibr(model_path: Path, out_dir: Path, manifest: dict[str, Any]) -> None:
     model = model_path.resolve()
     it = sibr_iteration_arg(out_dir)
+    viewers_bin = (_REPO / "3DGS" / "gaussian-splatting" / "viewers" / "bin").resolve()
     print(
         f"[ok] wrote {manifest['out_ply']}  "
         f"recolor={manifest['n_recolored']}/{manifest['n_selected']} "
@@ -302,7 +338,7 @@ def _print_sibr(model_path: Path, out_dir: Path, manifest: dict[str, Any]) -> No
     )
     print(
         "\nSIBR（必须先进入 viewers/bin）:\n"
-        "  Set-Location E:\\GSrefer3D\\3DGS\\gaussian-splatting\\viewers\\bin\n"
+        f"  Set-Location {viewers_bin}\n"
         f'  .\\SIBR_gaussianViewer_app.exe -m "{model}" --iteration {it}\n'
         "图例: 品红=选中且在 OBB 内, 亮绿=选中但框外, 青=手标 OBB, 蓝=P_world 种子\n",
         flush=True,
@@ -401,7 +437,12 @@ def main() -> None:
             wireframe_log_scale=args.wireframe_log_scale,
             seed=args.seed,
         )
-        _print_sibr(args.model_path, out_dir, manifest)
+        sibr_model = resolve_sibr_model_path(
+            out_iteration_dir=out_dir,
+            ply=Path(ply),
+            model_path=args.model_path,
+        )
+        _print_sibr(sibr_model, out_dir, manifest)
         written += 1
     if written == 0:
         raise SystemExit("没有写出任何注入 ply")

@@ -91,7 +91,7 @@ def metrics(gt: dict[int, tuple[float, float]], pred: dict[int, tuple[float, flo
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gt", type=Path, default=Path("training_data/data2_sft/location_point.json"))
+    ap.add_argument("--gt", type=Path, default=Path("training_data/data2_sft_ray/location_point.json"))
     ap.add_argument("--runs-root", type=Path, default=Path("3DGS/test2/runs"))
     ap.add_argument("--runs", type=str, nargs="*", help="run_id=物体:组别 entries via JSON file instead")
     ap.add_argument("--table-json", type=Path, help="JSON list of {object, group, run_id}")
@@ -156,7 +156,7 @@ def main() -> None:
             gt = tape_gt
             row["slug"] = "tape"
             row["gt_source"] = str(args.tape_question).replace("\\", "/")
-            row["note"] = "hold-out mask centroid; not in data2_sft"
+            row["note"] = "hold-out mask centroid; not in data2_sft / data2_sft_ray"
         elif slug is None:
             row.update({"n_gt_views": 0, "note": "无 SFT GT（hold-out）"})
             if run_dir.is_dir():

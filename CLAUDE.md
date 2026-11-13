@@ -16,32 +16,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 1) gaussian-splatting（3DGS 训练/渲染）
 
-**目录布局**：3DGS 代码位于 `3DGS/gaussian-splatting/`，这是一个扁平结构（`train.py`、`render.py`、`scene/`、`utils/`、`arguments/`、`gaussian_renderer/`、`submodules/` 都在同一层）。训练输出在 `3DGS/gaussian-splatting/output/<数据集名>/`，**模型目录名与训练数据集名一致**（`data`、`data2` 等），避免混用。多视角渲染输出在 `3DGS/test<N>/`，**test 目录与对应模型必须配套**（test2 → data2，test1 → data）。
+**目录布局（本机实际拆分，勿当成上游扁平仓库）**：
 
-**已有训练结果**：`data`（旧场景）、`data2`（电动剃须刀场景，当前主实验）。每个模型目录下有 `point_cloud/iteration_30000/`（最终权重）和 `iteration_35000/`（注入标记后的版本，用于 SIBR 可视化）。
+| 位置 | 内容 |
+|---|---|
+| `3DGS/` | 入口脚本：`train.py`、`render.py`、`convert.py`、`metrics.py`；备忘 `安装命令.txt`、`运行训练命令.txt`；多视角输出 `test1/`、`test2/`、`test3/`… |
+| `3DGS/gaussian-splatting/` | 包与数据：`scene/`、`utils/`、`arguments/`、`gaussian_renderer/`、`submodules/`、`colmap-x64-windows-cuda/`、`viewers/`；场景 `data/`、`data2/`、`data3/`；模型 `output/<数据集名>/` |
 
-**环境**：`conda activate envGS`（用户本机环境名，非 `gaussian_splatting`）。依赖清单见 `3DGS/environment-envGS.yml`（Python 3.9、PyTorch 2.4 + CUDA 11.8、**scipy** 等）。子模块需要手动 `pip install` 或 `python setup.py install`：`submodules/diff-gaussian-rasterization`、`submodules/simple-knn`、`submodules/fused-ssim`。
+训练输出在 `3DGS/gaussian-splatting/output/<数据集名>/`，**模型目录名与训练数据集名一致**（`data`、`data2`、`data3`），避免混用。多视角渲染输出在 `3DGS/test<N>/`，**test 目录与对应模型必须配套**（test1→data，test2→data2，test3→data3）。
 
-**典型命令**（在 `3DGS/` 下运行，即 `train.py`/`render.py` 所在目录）：
+**PYTHONPATH（训练/渲染必设）**：`train.py` 在 `3DGS/`，但 `utils`/`scene` 等在 `3DGS/gaussian-splatting/`。在 `3DGS/` 下跑训练或渲染前必须：
+
 ```powershell
-# EXIF 修复（手机拍摄）
+$env:PYTHONPATH = "E:\GSrefer3D\3DGS\gaussian-splatting"
+```
+
+否则会出现 `ModuleNotFoundError: No module named 'utils'`。`convert.py` 不依赖这些包，预处理可不设。新开终端要重新设。须在 **`envGS`** 中跑（`(base)` 里没有 `diff_gaussian_rasterization`）。
+
+**已有 / 在建场景**：
+
+| 场景目录 | 说明 | 配套 output / test |
+|---|---|---|
+| `data` | 旧场景（体育馆） | `output/data` · `test1` |
+| `data2` | 电动剃须刀桌面，当前主实验 | `output/data2` · `test2` |
+| `data3` | 厨房场景（2026-10 补拍；COLMAP 约 147/169 注册，22 张竖图因分辨率不一致未进重建） | `output/data3` · `test3` |
+
+每个已训模型目录下通常有 `point_cloud/iteration_30000/`（最终权重）和可选的 `iteration_35000/` / `iteration_seg_*`（注入标记，供 SIBR）。
+
+**环境**：`conda activate envGS`（用户本机环境名，非 `gaussian_splatting`）。依赖清单见 `3DGS/environment-envGS.yml`（Python 3.9、PyTorch 2.4 + CUDA 11.8、**scipy** 等）。光栅扩展：本机已装加速版时可 `from diff_gaussian_rasterization import SparseGaussianAdam`；子模块源码在 `gaussian-splatting/submodules/`（含 `diff-gaussian-rasterization-accel`）。本机 GPU：**RTX 4060 Laptop 8GB** — 默认 `-r 4` 稳妥；`-r 2` 可试但 densify 后期易 OOM，建议另开 `output/data3_r2` 等目录，勿覆盖 `-r 4` 结果。
+
+**COLMAP 约定**：`convert.py` 只读场景下的 **`input/`**（不要用 `image/`）。手机图先 `magick mogrify -strip`。仓库自带 CUDA COLMAP：`3DGS/gaussian-splatting/colmap-x64-windows-cuda/`。看稀疏重建用 **`COLMAP.bat`**（会设 `QT_PLUGIN_PATH`）；直接跑 `bin\colmap.exe gui` 会报找不到 Qt `windows` 插件。本机 COLMAP 4.x 命令行开 GUI 时 `--database_path` 必填。`convert.py` 使用 `exhaustive_matcher`，**图片文件名顺序不影响匹配**；`--ImageReader.single_camera 1` 要求整组分辨率一致（横竖混拍时竖图常被丢掉）。
+
+**data3 厨房：预处理 → 检查 → 加速训练（推荐照抄）**：
+
+```powershell
+conda activate envGS
+Set-Location E:\GSrefer3D\3DGS
+
+# 原图目录必须叫 input/（若误放成 image/：Rename-Item ...\image input）
+magick mogrify -strip gaussian-splatting\data3\input\*.jpg
+
+python convert.py -s gaussian-splatting\data3 `
+  --colmap_executable "E:\GSrefer3D\3DGS\gaussian-splatting\colmap-x64-windows-cuda\bin\colmap.exe"
+
+# 可选：检查配准（GUI）
+& "E:\GSrefer3D\3DGS\gaussian-splatting\colmap-x64-windows-cuda\COLMAP.bat" gui `
+  --database_path "E:\GSrefer3D\3DGS\gaussian-splatting\data3\distorted\database.db" `
+  --image_path "E:\GSrefer3D\3DGS\gaussian-splatting\data3\images" `
+  --import_path "E:\GSrefer3D\3DGS\gaussian-splatting\data3\sparse\0"
+# 或只开 GUI 后 File → Import model → 选 sparse\0
+# CLI 统计：colmap model_analyzer --path ...\data3\sparse\0
+
+# 训练前验证加速扩展 + 设置 PYTHONPATH
+python -c "from diff_gaussian_rasterization import SparseGaussianAdam; print('sparse_adam OK')"
+$env:PYTHONPATH = "E:\GSrefer3D\3DGS\gaussian-splatting"
+
+python train.py `
+  -s E:\GSrefer3D\3DGS\gaussian-splatting\data3 `
+  -m E:\GSrefer3D\3DGS\gaussian-splatting\output\data3 `
+  -r 4 `
+  --optimizer_type sparse_adam `
+  --disable_viewer
+
+# 多视角渲染（给 bridge；勿与 test2 混用）
+python render.py `
+  -m gaussian-splatting\output\data3 `
+  --custom_views `
+  --output_path E:\GSrefer3D\3DGS\test3
+```
+
+**data2 典型命令**（同目录 / 同 PYTHONPATH 约定）：
+```powershell
+conda activate envGS
+Set-Location E:\GSrefer3D\3DGS
+$env:PYTHONPATH = "E:\GSrefer3D\3DGS\gaussian-splatting"
+
 magick mogrify -strip gaussian-splatting/data2/input/*.jpg
-# COLMAP 预处理
-python gaussian-splatting/convert.py -s gaussian-splatting/data2
-# 训练（-r 4 表示 1/4 分辨率）
-python train.py -s gaussian-splatting/data2 -r 4
-# 渲染多视角（输出到 test2）
+python convert.py -s gaussian-splatting/data2 `
+  --colmap_executable "E:\GSrefer3D\3DGS\gaussian-splatting\colmap-x64-windows-cuda\bin\colmap.exe"
+python train.py -s gaussian-splatting/data2 -m gaussian-splatting/output/data2 -r 4 --optimizer_type sparse_adam --disable_viewer
 python render.py -m gaussian-splatting/output/data2 --custom_views --output_path E:/GSrefer3D/3DGS/test2
-# SIBR 查看器（必须从 bin/ 目录启动，否则 DLL 找不到）
+# SIBR（必须从 viewers/bin 启动，否则 DLL 找不到）
 Set-Location gaussian-splatting/viewers/bin
 .\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2"
-# 加载注入标记的版本（iteration_35000）
 .\SIBR_gaussianViewer_app.exe -m "E:\GSrefer3D\3DGS\gaussian-splatting\output\data2" --iteration 35000
 ```
 
 **注意**：SIBR viewer 必须从 `viewers/bin/` 目录启动（`Set-Location` 后再运行），否则 `sibr_system.dll` 找不到。PowerShell 中 `--iteration` 不会报错，但 `--` 开头的参数在某些 PS 版本中需要用 `cmd /c` 包裹。
 
-加速训练需切到 `diff-gaussian-rasterization` 的 `3dgs_accel` 分支并用 `--optimizer_type sparse_adam`（见 `gaussian-splatting/README.md` 中 "Training speed acceleration" 一节）。深度正则化需要 Depth-Anything-V2 生成深度图 + `utils/make_depth_scale.py` 生成 `depth_params.json`，然后训练时加 `-d <depth_dir>`。
+加速训练用已安装的 accel 光栅 + `--optimizer_type sparse_adam`（未装好时勿加该参数）。深度正则化需要 Depth-Anything-V2 生成深度图 + `gaussian-splatting/utils/make_depth_scale.py` 生成 `depth_params.json`，然后训练时加 `--depths <相对 source 的子目录名>`（详见 `3DGS/运行训练命令.txt`）。
 
 ### 2) RoboRefer-main（VLM 推理 / 训练 / 评测）
 
@@ -49,9 +112,17 @@ Set-Location gaussian-splatting/viewers/bin
 
 **环境**：`bash env_setup.sh roborefer` → `conda activate roborefer`（Python 3.10.14，PyTorch 2.5.1，CUDA 12.x，FlashAttention 2.5.8 的 Linux wheel — 该 setup 脚本默认假定 Linux）。安装过程还会把 `llava/train/deepspeed_replace/*` 复制覆盖到 site-packages 的 `deepspeed/` 下，这是已知的定制点，不要改 deepspeed 又忘了同步 `deepspeed_replace/`。
 
+**PYTHONPATH（WSL 起 API / `import llava` 必设）**：本机 `roborefer` 里 `vila` 若仍是 editable 指向旧目录（例如 `/mnt/e/3DGS-VLM/RoboRefer-main`），会出现 `ModuleNotFoundError: No module named 'llava'`。在 `RoboRefer-main` 下跑 API、merge、训练前必须：
+
+```bash
+export PYTHONPATH=/mnt/e/GSrefer3D/RoboRefer-main
+```
+
+或一次性修好安装：`cd /mnt/e/GSrefer3D/RoboRefer-main && pip install -e .`（仍建议先 `export PYTHONPATH=...` 再开 API）。**不要在 Windows PowerShell 里直接跑** `api.py` / `/mnt/e/...`（`\` 续行会报错）；先 `wsl` 再进 bash。
+
 **三条主线**：
 
-- **推理（API 服务 + 客户端）**：`cd API; python api.py --port 25547 --depth_model_path <DepthAnythingV2-vitl.pth> --vlm_model_path <RoboRefer weights>`，另一个终端 `python use_api.py --image_path ... --prompt ... --url http://127.0.0.1:25547`。`use_api.py` 中 `enable_depth=0/1` 切换纯 RGB / RGB-D。
+- **推理（API 服务 + 客户端）**：WSL 中设好 `PYTHONPATH` 后 `cd API; python api.py --port 25547 --depth_model_path <DepthAnythingV2-vitl.pth> --vlm_model_path <RoboRefer weights>`；Windows 另一终端用 `bridge/roborefer_client.py` 或 `use_api.py` 打 `http://127.0.0.1:25547`（WSL2 一般自动转发端口）。`use_api.py` 中 `enable_depth=0/1` 切换纯 RGB / RGB-D。
 - **训练**：脚本在 `scripts/RoboRefer/`（`depth_align_2B.sh`、`depth_sft_2B.sh`、`..._cluster.sh` 和 8B 变体）。训练是 **两阶段 SFT**：先做 depth alignment（深度编码器对齐），再做空间指代 SFT。自定义数据集须在 `llava/data/datasets_mixture.py` 的 `register_datasets_mixtures()` 中注册，`dataset_type="spatialdataset"` 同时支持 RGB 与 RGB-D（带 `depth_path` 就是 RGB-D，不带就是 RGB-only）。多个数据集在脚本的 `DATA_MIXTURE` 变量里用 `+` 连接。基础设施脚本 `scripts/setups/train.sh` 控制 NNODES / GPUS_PER_NODE / batch size，DeepSpeed 配置在 `scripts/zero*.json`。
 - **基准评测**：需先下载 `RefSpatial-Bench` 到 `Evaluation/` 下：
   ```bash
@@ -91,7 +162,7 @@ Set-Location gaussian-splatting/viewers/bin
 ## 交互偏好
 
 - 用中文回复用户（已在 `~/.claude/CLAUDE.md` 与本项目 memory 中记录）。
-- 用户已有的操作记录/备忘在 `gaussian-splatting/安装命令.txt`、`gaussian-splatting/运行训练命令.txt`；涉及 3DGS 操作时优先与这些文件中的命令风格保持一致。
+- 用户已有的操作记录/备忘在 `3DGS/安装命令.txt`、`3DGS/运行训练命令.txt`；涉及 3DGS 操作时优先与这些文件及上文 **§1 data3/data2 命令** 保持一致（含 `PYTHONPATH` 与 `envGS`）。
 
 ## 整合管线 (bridge/)
 
@@ -100,15 +171,13 @@ Set-Location gaussian-splatting/viewers/bin
 ### 数据流
 
 ```
-bridge/run_bridge_e2e.py 编排（subprocess / WSL）：
-3DGS render.py --custom_views   →  <root>/{rgb, depth, depth_raw, camera_params}/
+bridge/run_bridge_e2e.py 编排（envGS 进程内调函数；子进程只有 render.py 与 WSL mask）：
+3DGS/render.py --custom_views   →  <root>/{rgb, depth, depth_raw, camera_params}/
 bridge/roborefer_client.py      →  runs/<id>/predictions.json
-bridge/fuse_multiview.py        →  fused.json（P_world 种子）
-bridge/filter_views_3dgs.py     →  projections_kept.json
-bridge/gen_training_data.py     →  mask/（Grounding DINO + SAM2）
-bridge/frustum_segment.py       →  gaussian_seg.json         （物体高斯）
-bridge/inject_gaussian_seg.py   →  iteration_seg_<name>/     （SIBR）
-bridge/eval_gaussian_seg.py     →  有手标 OBB 时：质心∈OBB、框内占比、2D mask 精度
+fuse → filter → mask → refine → 视锥投票 → inject
+gaussian_seg.json               →  物体高斯
+iteration_seg_<name>/           →  SIBR（不写回 iteration_30000）
+eval_gaussian_seg               →  有手标 OBB 时：质心∈OBB、框内占比、2D mask 精度
 ```
 
 ### 关键文件
@@ -116,12 +185,15 @@ bridge/eval_gaussian_seg.py     →  有手标 OBB 时：质心∈OBB、框内�
 - `bridge/unproject.py` — `CameraView` + `Unprojector`。**约定（重要）**：`render.py` 保存的 `view.R` 是 3DGS 内部的 R_c2w（camera-to-world，glm 列主序约定的转置），`from_json()` 里会自动转置为 R_w2c 再使用，**不要直接把 JSON 里的 `rotation` 当 R_w2c 用**。`position` 是世界系下相机中心 C。反投影公式 `P_world = R_w2c.T @ P_cam + C`（即 `R_c2w @ P_cam + C`）。`depth_raw/*.npy` 是 raster 输出的 `expected_invdepth`，需要 `z_cam = 1 / max(inv, eps)`（已在 `Unprojector.sample_depth_raw` 处理）。
 - `bridge/roborefer_client.py` — 单/批量模式。内置 HTTP 客户端，直接 POST `{image_url: [base64], depth_url: [base64], enable_depth, text}` 到 RoboRefer `/query` 端点，只需 `requests` 库。批量模式扫 `<root>/rgb/view_*.png` 的 view id，把回答解析为 `[{nx, ny}]` 写进 `predictions.json`，失败视角不中断（记录 `error`）。
 - `bridge/fuse_multiview.py` — RANSAC + 迭代精炼得到 **mask 种子** `P_world`（不是 3D 评测结果）。`--ply` 供 `--depth-mode ray` 沿射线查高斯。`--no-refine`、`--refine-k`。
-- `bridge/frustum_segment.py` — 多视 mask 视锥投票（默认 `--min-vote-frac 0.5`）→ `gaussian_seg.json`。
+- `bridge/frustum_segment.py` — 多视 mask 视线加权投票（默认白集分数 > 0.03，最终 > 0.15）→ `gaussian_seg.json`。`--min-vote-frac` 才是旧的全局比例票。
 - `bridge/inject_gaussian_seg.py` — 选中高斯改色 + 手标 OBB 线框，写出独立 iteration（不写回 30000）。
 - `bridge/eval_gaussian_seg.py` — **现行 3D 口径**：投票质心是否在 OBB 内、选中高斯框内占比、2D mask 重投影精度。
 - `bridge/run_bridge_e2e.py` — 唯一用户入口：render → query → fuse 种子 → project/filter → WSL DINO+SAM → refine → 视锥投票 → SIBR 注入。API 不可用 `sys.exit(10)`；WSL/mask 环境缺 `sys.exit(11)`。
 - `bridge/e2e_stages.py` — 渲染/融合/WSL mask 预检，供 e2e 调用，不是入口。
-- `bridge/filter_views_3dgs.py` — 训练数据视角过滤：`projections.json` + `fused.json` + 全场 `point_cloud.ply` → `projections_kept.json` / `projections_rejected.json`。拒帧规则：射线 `C→P_world`，簇深度带 `[z_lo,z_hi]`，`T(z_lo) < --ray-min-transmittance`（默认 0.55）→ `ray_foreground_occluded`。须在 envGS 且已装 `scipy`。
+- `bridge/filter_views_3dgs.py` — 训练数据视角过滤：`projections.json` + `fused.json` + 全场 `point_cloud.ply` → `projections_kept.json` / `projections_rejected.json`。拒帧规则：射线 `C→P_world`，簇深度带 `[z_lo,z_hi]`，`T(z_lo) < --ray-min-transmittance`（默认 0.45）→ `ray_foreground_occluded`。须在 envGS 且已装 `scipy`。药瓶那组更松的数用这几个参数直接传入，没有预设名。
+- `bridge/view_lists.py` — 显式删视角，e2e 不按物体名调用。`kept` 改 `projections_kept.json`；`labels` 改 `question.json`。`apply_manual_cull.py` 只是 labels 的批量入口。
+- `bridge/bbox_keys.py` — 目录名到 `docs/bbox_data2.json` 键。只在没写 `--bbox-key` 时用。
+- `bridge/repo_paths.py` — 新 JSON 写相对仓库根的路径；读取同时认相对路径、Windows 绝对路径和 `/mnt/<盘>/...`。不改已有文件。
 - `bridge/gen_training_data.py` — `--stage project` 生成投影；`--stage mask` 需 WSL roborefer + SAM2。
 - `bridge/tests/` — pytest 回归。`test_unproject_view000.py` 硬编码金标准（view_000, nx=0.458, ny=0.298 → P_world=[-1.614, 0.703, -0.194]），任何改了渲染端字段、深度语义、外参约定的提交都会立刻报警。
 - `bridge/verify_unproject_vs_pointcloud.py` — 验证脚本，检查反投影点到最近高斯点的 NN 距离。
@@ -138,8 +210,8 @@ bridge/eval_gaussian_seg.py     →  有手标 OBB 时：质心∈OBB、框内�
 
 **RoboRefer API 部署**（二选一）：
 
-1. **WSL `roborefer`**（需 ~10GB+ 显存，4060 8GB 易 OOM）：`http://127.0.0.1:25547`（WSL2 端口自动转发至 Windows）。
-2. **AutoDL 云 GPU（推荐）**：在云上 `python api.py --port 25547 --host 0.0.0.0`；本机 **SSH 隧道** 后仍用 `--url http://127.0.0.1:25547`：
+1. **WSL `roborefer`**（需 ~10GB+ 显存，4060 8GB 易 OOM）：`http://127.0.0.1:25547`（WSL2 端口自动转发至 Windows）。**必须先 `export PYTHONPATH=/mnt/e/GSrefer3D/RoboRefer-main`**，否则 `import llava` 失败。
+2. **AutoDL 云 GPU（推荐）**：在云上 `python api.py --port 25547`（本仓库 `api.py` 无 `--host` CLI，代码内已 `app.run(host='0.0.0.0')`）；本机 **SSH 隧道** 后仍用 `--url http://127.0.0.1:25547`：
    ```powershell
    ssh -CNg -L 25547:127.0.0.1:25547 -p <AutoDL端口> root@<AutoDL主机>
    ```
@@ -148,12 +220,15 @@ bridge/eval_gaussian_seg.py     →  有手标 OBB 时：质心∈OBB、框内�
 实际运行示例（data2 场景，电动剃须刀）：
 
 ```powershell
-# 0) WSL Ubuntu: 起 RoboRefer API server（保持运行）
+# 0) Windows 先输入 wsl，再在 WSL bash 里起 API（保持运行；勿在 PS 里直接跑）
 conda activate roborefer
 cd /mnt/e/GSrefer3D/RoboRefer-main/API
+export PYTHONPATH=/mnt/e/GSrefer3D/RoboRefer-main
 python api.py --port 25547 \
      --depth_model_path "/mnt/e/GSrefer3D/weights/depth_anything_v2_vitl.pth" \
      --vlm_model_path "/mnt/e/GSrefer3D/RoboRefer-2B-SFT"
+# ray LoRA：--vlm_model_path /mnt/e/GSrefer3D/RoboRefer-2B-SFT-data2-ray-merged
+# 旧 LoRA： /mnt/e/GSrefer3D/RoboRefer-2B-SFT-data2-merged
 
 # 1) Windows envGS: 渲染多视角
 conda activate envGS

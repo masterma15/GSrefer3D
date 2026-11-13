@@ -15,6 +15,8 @@ from inject_gaussian_seg import (  # noqa: E402
     COLOR_IN_OBB,
     COLOR_OUT_OBB,
     inject_gaussian_seg,
+    model_path_from_iteration_dir,
+    resolve_sibr_model_path,
     sibr_iteration_arg,
 )
 from obb_geom import obb_hits, rgb_to_f_dc  # noqa: E402
@@ -53,6 +55,18 @@ def test_sibr_iteration_arg() -> None:
     assert sibr_iteration_arg(Path("point_cloud/iteration_38100")) == "38100"
     assert sibr_iteration_arg(Path("iteration_seg_electric_shaver")) == "seg_electric_shaver"
     assert sibr_iteration_arg(Path("custom")) == "custom"
+
+
+def test_sibr_model_path_from_out_iteration_dir(tmp_path: Path) -> None:
+    out = tmp_path / "output" / "data3" / "point_cloud" / "iteration_seg_data3_bowl_sector035"
+    out.mkdir(parents=True)
+    assert model_path_from_iteration_dir(out) == (tmp_path / "output" / "data3").resolve()
+    got = resolve_sibr_model_path(
+        out_iteration_dir=out,
+        ply=tmp_path / "output" / "data2" / "point_cloud" / "iteration_30000" / "point_cloud.ply",
+        model_path=tmp_path / "output" / "data2",
+    )
+    assert got == (tmp_path / "output" / "data3").resolve()
 
 
 def test_obb_hits_axis_aligned() -> None:

@@ -38,6 +38,23 @@ def obb_hit(p_world: np.ndarray, obb: dict[str, Any], *, margin: float = 0.0) ->
     return bool(np.all(np.abs(local) <= half))
 
 
+def obb_axis_coverage(xyz_in: np.ndarray, obb: dict[str, Any]) -> dict[str, Any] | None:
+    """框内点在 OBB 各轴上的覆盖率 (max-min) / (2 * half_extent)。
+
+    没有框内点时返回 None。一个点的覆盖率是 0，不是空。
+    """
+    if xyz_in.shape[0] == 0:
+        return None
+    center = np.asarray(obb["center"], dtype=np.float64).reshape(1, 3)
+    rot = np.asarray(obb["rotation_columns"], dtype=np.float64)
+    local = (xyz_in - center) @ rot
+    half = half_extent(obb)
+    span = local.max(axis=0) - local.min(axis=0)
+    denom = 2.0 * half
+    coverage = np.divide(span, denom, out=np.zeros(3, dtype=np.float64), where=denom > 0)
+    return {"axes": [float(x) for x in coverage], "min": float(np.min(coverage))}
+
+
 def obb_hits(xyz: np.ndarray, obb: dict[str, Any], *, margin: float = 0.0) -> np.ndarray:
     """批量命中，语义与 ``obb_hit`` 相同。"""
     if xyz.size == 0:

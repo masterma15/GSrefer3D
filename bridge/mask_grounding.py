@@ -16,24 +16,26 @@ class GroundingSamConfig:
     text_threshold: float = 0.12
     anchor_box_radius: int = 64
     min_mask_ratio: float = 0.001
-    # 选框：DINO 置信度与邻近度加权（不用绝对最小框规则）
+    # 选框：过远、过大的框丢掉；比候选中位数大的框降权。
     max_box_area_ratio: float = 0.35
     max_point_box_dist: float = -1.0  # 像素；<0 则取 0.15 * 图像对角线
-    min_box_area_ratio: float = 0.003  # 丢掉过小的碎片框（部件/邻物杂波）
+    min_box_area_ratio: float = 0.003  # 丢掉过小的碎片框；若只剩碎片则保留
     dino_score_weight: float = 0.50
     near_score_weight: float = 0.40
-    near_dist_sigma: float = 50.0  # exp(-pt_dist/sigma)：平滑邻近度，非字典序
-    contain_bonus: float = 0.06  # 锚点落在框内时轻微加分
-    area_penalty: float = 0.12  # 轻微的全局面积先验
-    compact_box_weight: float = 0.28  # 框面积 <= 候选中位数时加分
-    large_box_penalty: float = 0.38  # 框面积远大于中位数时惩罚（DINO 偏好大框）
-    tiny_box_penalty: float = 0.40  # area_ratio 低于 min_box_area_ratio 时额外扣分
+    near_dist_sigma: float = 50.0  # exp(-pt_dist/sigma)：点到框边的距离，框内为 0
+    contain_bonus: float = 0.06  # 投影点落在框内时加一点
+    area_penalty: float = 0.12  # 轻微的全局面积项
+    compact_box_weight: float = 0.28  # 框面积不超过候选中位数时加分
+    large_box_area_start: float = 0.15  # 保留字段，当前选框不读取
+    large_box_penalty: float = 0.38  # 框面积大于候选中位数时扣分
+    tiny_box_penalty: float = 0.40  # 面积低于 min_box_area_ratio 时额外扣分
     prefer_containing_point: bool = False  # 旧版字典序模式（关闭）
     # SAM：默认只用框（3D 锚点可能落在物体边缘的背景上）
     use_sam_point_prompt: bool = False
     min_box_mask_iou: float = 0.12  # 拒绝无视 DINO 框的 SAM mask
     fallback_point_sam: bool = True  # 仅当 DINO 一个框都没返回时
     fallback_point_sam_if_box_miss: bool = False  # 点不在物体上时不要用点 mask 替换框 mask
+    text_only: bool = False  # 只按 DINO 分数选框，点不参与过滤、排序和点提示回退
 
 
 def load_grounding_dino(config_path: str, checkpoint_path: str, device: str = "cuda"):
@@ -150,19 +152,16 @@ def _composite_box_score(
     *,
     median_area_ratio: float,
 ) -> float:
+    """相对候选中位数压大框。大于中位数时检测分按面积缩小，并再扣一截。"""
     near = _nearness_term(pt_dist, cfg)
     tiny = max(0.0, cfg.min_box_area_ratio - area_ratio) / max(cfg.min_box_area_ratio, 1e-9)
-
-    dino_eff = dino
-    compact = 0.0
     med = max(median_area_ratio, 1e-9)
     if area_ratio > med:
-        # DINO 常给大框更高分；对过大检测降权
         dino_eff = dino * min(1.0, math.sqrt(med / area_ratio))
         compact = -cfg.large_box_penalty * min(2.5, area_ratio / med - 1.0)
     else:
+        dino_eff = dino
         compact = cfg.compact_box_weight * (1.0 - area_ratio / med)
-
     score = (
         cfg.dino_score_weight * dino_eff
         + cfg.near_score_weight * near
@@ -201,18 +200,19 @@ def _rank_boxes(
 ) -> list[tuple[int, float, bool, float, float]]:
     """返回 (index, select_score, contains_point, area, point_to_box_dist)，最优在前。
 
-    加权分 = w_dino*DINO + w_near*exp(-dist/sigma) - 轻微面积项 - 碎片框惩罚。
-    硬过滤：过远、过大；可选丢掉低于最小面积的框（若只剩这些则保留）。
+    硬过滤：离投影点过远，或面积超过画面 max_box_area_ratio。碎片框在还有更大框时丢掉。
+    排序按检测分、远近和相对中位数的面积项。
+    ``text_only`` 时不看点、也不看面积，按 DINO 原始分数从高到低。
     """
     max_dist = _max_point_box_dist_px(w, h, cfg)
     pool: list[tuple[int, float, bool, float, float, float]] = []
 
     for i, box in enumerate(boxes_xyxy):
         pt_dist = _point_to_box_distance(u, v, box)
-        if pt_dist > max_dist:
+        if not cfg.text_only and pt_dist > max_dist:
             continue
         area_ratio = _box_area_ratio(box, w, h)
-        if area_ratio > cfg.max_box_area_ratio:
+        if not cfg.text_only and area_ratio > cfg.max_box_area_ratio:
             continue
         area = _box_area(box)
         contains = pt_dist <= 0.0
@@ -221,6 +221,10 @@ def _rank_boxes(
 
     if not pool:
         return []
+
+    if cfg.text_only:
+        pool.sort(key=lambda p: (-p[1], p[0]))
+        return [(i, dino, contains, area, pt_dist) for i, dino, contains, area, pt_dist, _ar in pool]
 
     non_tiny = [p for p in pool if p[5] >= cfg.min_box_area_ratio]
     candidates = non_tiny if non_tiny else pool
@@ -234,11 +238,15 @@ def _rank_boxes(
             candidates = containing + rest
 
     median_ar = float(np.median([p[5] for p in candidates]))
-
     scored: list[tuple[int, float, bool, float, float]] = []
     for i, dino, contains, area, pt_dist, area_ratio in candidates:
         sel = _composite_box_score(
-            dino, pt_dist, area_ratio, contains, cfg, median_area_ratio=median_ar
+            dino,
+            pt_dist,
+            area_ratio,
+            contains,
+            cfg,
+            median_area_ratio=median_ar,
         )
         scored.append((i, sel, contains, area, pt_dist))
 
@@ -363,7 +371,7 @@ def grounding_sam_mask(
             box,
             u,
             v,
-            use_point=cfg.use_sam_point_prompt,
+            use_point=cfg.use_sam_point_prompt and not cfg.text_only,
         )
         iou = _mask_box_iou(m, box)
         pin = _point_in_mask(m, u, v)
@@ -391,10 +399,10 @@ def grounding_sam_mask(
         if info["box_mask_iou"] < cfg.min_box_mask_iou:
             continue
         best_mask, best_meta = m, info
-        best_meta["select_reason"] = "weighted_near_dino_sam"
+        best_meta["select_reason"] = "dino_score" if cfg.text_only else "median_area"
         break
 
-    if best_mask is None and len(boxes) == 0 and cfg.fallback_point_sam:
+    if best_mask is None and len(boxes) == 0 and cfg.fallback_point_sam and not cfg.text_only:
         meta["reason"] = "no_dino_boxes"
         m, sam_score = segment_point(sam_predictor, image_rgb, u, v)
         meta["fallback"] = "point_sam"

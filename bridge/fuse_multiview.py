@@ -31,6 +31,7 @@ import numpy as np
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "bridge"))
 
+from repo_paths import to_repo_relative  # noqa: E402
 from unproject import CameraView, Unprojector  # noqa: E402
 
 try:
@@ -172,9 +173,9 @@ def gather_candidates(
                 invdepth=float(inv),
                 z_cam=float(z_cam),
                 P_world=np.asarray(p_world, dtype=np.float64),
-                rgb_path=str(rgb_path).replace("\\", "/"),
-                camera_path=str(cam_path).replace("\\", "/"),
-                depth_raw_path=str(depth_path).replace("\\", "/"),
+                rgb_path=to_repo_relative(rgb_path),
+                camera_path=to_repo_relative(cam_path),
+                depth_raw_path=to_repo_relative(depth_path),
                 z_cam_raw=z_cam_raw,
                 depth_mode=mode,
                 ray_meta=ray_meta,
@@ -279,15 +280,20 @@ def fuse(
     ray_pixel_radius: float = 6.0,
     ray_z_band: float = 2.0,
     ray_min_alpha: float = 0.45,
+    ray_model: Any | None = None,
 ) -> FusionResult:
-    ray_model = None
     ray_cfg = None
     if depth_mode == "ray":
-        if ply_path is None or not ply_path.is_file():
-            raise SystemExit("depth_mode=ray requires --ply (3DGS point_cloud.ply)")
-        if RayOcclusionModel is None:
+        if ray_model is None:
+            if ply_path is None or not ply_path.is_file():
+                raise SystemExit("depth_mode=ray requires --ply (3DGS point_cloud.ply)")
+            if RayOcclusionModel is None:
+                raise SystemExit("depth_mode=ray requires scipy (envGS)")
+            ray_model = RayOcclusionModel.from_ply(
+                ply_path, perp_radius=ray_perp_radius, sample_step=0.025
+            )
+        elif RayOcclusionModel is None:
             raise SystemExit("depth_mode=ray requires scipy (envGS)")
-        ray_model = RayOcclusionModel.from_ply(ply_path, perp_radius=ray_perp_radius)
         ray_cfg = RayUnprojectConfig(
             perp_radius=ray_perp_radius,
             pixel_radius=ray_pixel_radius,

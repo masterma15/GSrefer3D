@@ -50,6 +50,10 @@ from pathlib import Path
 
 When not on SLURM: `export SLURM_JOB_GPUS_PER_NODE=1`
 
+## 5. `llava/train/train.py` — LoRA exclude depth modules
+
+In `find_all_linear_names`, `multimodal_keywords` must also list `depth_projector` and `depth_tower`. Upstream only skips `mm_projector` / `vision_resampler` (/ `vision_tower` when `lora_vt` is off). Without this, LoRA still attaches to depth Linear layers even with `--tune_depth_projector False`.
+
 ## Not modified
 
 Model architecture (`llava_arch.py`), encoders, projectors, eval scripts — use upstream as-is.
