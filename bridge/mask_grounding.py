@@ -23,11 +23,11 @@ class GroundingSamConfig:
     dino_score_weight: float = 0.50
     near_score_weight: float = 0.40
     near_dist_sigma: float = 50.0  # exp(-pt_dist/sigma)：点到框边的距离，框内为 0
-    contain_bonus: float = 0.06  # 投影点落在框内时加一点
+    contain_bonus: float = 0.18  # 投影点落在框内时加分（避免零件小框压过整机）
     area_penalty: float = 0.12  # 轻微的全局面积项
-    compact_box_weight: float = 0.28  # 框面积不超过候选中位数时加分
+    compact_box_weight: float = 0.10  # 框面积不超过候选中位数时小幅加分
     large_box_area_start: float = 0.15  # 保留字段，当前选框不读取
-    large_box_penalty: float = 0.38  # 框面积大于候选中位数时扣分
+    large_box_penalty: float = 0.12  # 大于中位数时轻扣（过重会把整机框拆成零件）
     tiny_box_penalty: float = 0.40  # 面积低于 min_box_area_ratio 时额外扣分
     prefer_containing_point: bool = False  # 旧版字典序模式（关闭）
     # SAM：默认只用框（3D 锚点可能落在物体边缘的背景上）

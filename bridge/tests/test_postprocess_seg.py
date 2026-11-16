@@ -11,7 +11,9 @@ sys.path.insert(0, str(REPO / "bridge"))
 
 from postprocess_seg import (  # noqa: E402
     connected_labels,
+    density_mask_fill,
     fill_same_component,
+    jury_delete_keep_mask,
     large_component_ids,
     mask_direct_select,
     morph_close_fill,
@@ -186,15 +188,96 @@ def test_mask_direct_drops_thin_exterior_spur() -> None:
     assert "exterior_spurs" in str(result["delete_mode"])
 
 
-def test_maskclose_gate_chopsticks_and_scissors() -> None:
-    """右筷极端欠选、中间剪刀少视角欠完整应开；低选点但视角多、或少视角但选点过万不开。"""
-    ok, reason = should_run_maskclose(642, 77)
-    assert ok and "n_selected<" in reason
-    ok, reason = should_run_maskclose(3413, 27)
-    assert ok and "few_views" in reason
-    ok, reason = should_run_maskclose(2476, 101)
+def test_maskclose_gate_few_views_low_selected() -> None:
+    """n_views≤30 且 n_selected<7000 开门控；左/右剪、药瓶、大视角右筷跳过。"""
+    ok, reason = should_run_maskclose(5569, 27)
+    assert ok and "few_views" in reason and "7000" in reason
+    ok, reason = should_run_maskclose(6999, 30)
+    assert ok
+    ok, reason = should_run_maskclose(7000, 27)
     assert not ok and reason == "softedge_ok"
-    ok, reason = should_run_maskclose(10369, 29)
+    ok, reason = should_run_maskclose(11013, 29)
     assert not ok and reason == "softedge_ok"
-    ok, reason = should_run_maskclose(8779, 90)
+    ok, reason = should_run_maskclose(12307, 27)
     assert not ok and reason == "softedge_ok"
+    ok, reason = should_run_maskclose(8623, 77)
+    assert not ok and reason == "softedge_ok"
+    ok, reason = should_run_maskclose(100, None)
+    assert not ok and reason == "missing_n_views"
+    ok, reason = should_run_maskclose(None, 10)
+    assert not ok and reason == "missing_n_selected"
+
+
+class _OrthoCam:
+    """世界 (x,y) → 像素 (x,y)，z=1；便于假 mask 单测。"""
+
+    def __init__(self, w: int = 20, h: int = 20) -> None:
+        self.width = w
+        self.height = h
+
+    @property
+    def intrinsics(self) -> tuple[float, float, float, float]:
+        return (1.0, 1.0, 0.0, 0.0)
+
+    def world_to_cam_points(self, xyz: np.ndarray) -> np.ndarray:
+        out = np.zeros_like(xyz, dtype=np.float64)
+        out[:, 0] = xyz[:, 0]
+        out[:, 1] = xyz[:, 1]
+        out[:, 2] = 1.0
+        return out
+
+
+def test_jury_delete_drops_points_outside_majority_masks() -> None:
+    """两点：A 两视 mask 内保留；B 两视可见但都不在 mask → 删。"""
+    cam = _OrthoCam()
+    m0 = np.zeros((20, 20), dtype=np.uint8)
+    m0[0:5, 0:5] = 255
+    m1 = np.zeros((20, 20), dtype=np.uint8)
+    m1[0:5, 0:5] = 255
+    xyz = np.array([[2.0, 2.0, 0.0], [12.0, 12.0, 0.0]], dtype=np.float64)
+    # A hit/vis=2/2；B hit/vis=0/2 < 0.5 → 删 B
+    keep = jury_delete_keep_mask(xyz, [cam, cam], [m0, m1], keep_frac=0.5, min_vis=2)
+    assert bool(keep[0]) is True
+    assert bool(keep[1]) is False
+
+
+def test_density_fill_requires_neighbors_and_one_mask_hit() -> None:
+    """洞内近邻够密且 mask 命中可补；远处或无 mask 不补。"""
+    cam = _OrthoCam()
+    mask = np.zeros((20, 20), dtype=np.uint8)
+    mask[0:8, 0:8] = 255
+    core = np.zeros((9, 3), dtype=np.float64)
+    xs = np.linspace(1.0, 3.0, 3)
+    i = 0
+    for x in xs:
+        for y in xs:
+            core[i] = [x, y, 0.0]
+            i += 1
+    core_index = np.arange(9, dtype=np.int64)
+    pool = np.array(
+        [
+            [2.0, 2.0, 0.0],  # 洞心，密度够，mask 内
+            [15.0, 15.0, 0.0],  # 远且 mask 外
+            [2.0, 2.0, 0.0],  # duplicate index handled by caller; use distinct
+        ],
+        dtype=np.float64,
+    )
+    pool[2] = [6.5, 6.5, 0.0]  # mask 内但离核远、邻居不够
+    pool_index = np.array([100, 101, 102], dtype=np.int64)
+    xyz, idx, n_added, n_rej = density_mask_fill(
+        core,
+        core_index,
+        pool,
+        pool_index,
+        [cam],
+        [mask],
+        dense_radius=1.5,
+        min_dense=4,
+        link_radius=1.5,
+    )
+    kept = set(idx.tolist())
+    assert 100 in kept
+    assert 101 not in kept
+    assert 102 not in kept
+    assert n_added == 1
+    assert n_rej >= 2

@@ -70,6 +70,7 @@ def minicam_from_camera_json(cam: dict):
 
 def load_gaussian_model(ply_path: Path, sh_degree: int = 3):
     """从投票时用的 ply 加载高斯。编号与 gaussian_seg.json 的 indices 对齐。"""
+    import torch  # noqa: F401 — simple_knn DLL 需先加载 torch
     from scene.gaussian_model import GaussianModel
 
     model = GaussianModel(sh_degree)

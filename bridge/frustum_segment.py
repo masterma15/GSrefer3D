@@ -1189,6 +1189,10 @@ def run_object(
         from render_object_weight import render_footprint_and_stain
 
         print(f"[seg] footprint+stain from {src.name} white={white.size}", flush=True)
+        if white.size == 0:
+            raise SystemExit(
+                f"[seg] 白集为空（{src.name}），终止：无法做 softedge footprint/stain"
+            )
         footprint_maps, weight_maps = render_footprint_and_stain(
             ply, white, [item["cam"] for item in views]
         )

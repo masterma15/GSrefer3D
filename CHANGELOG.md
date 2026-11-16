@@ -10,10 +10,10 @@
 
 | 模块 | 用途 |
 |---|---|
-| `postprocess_seg.py` | 投票后处理；默认门控 maskclose（欠选 / 少视角欠完整才补点） |
-| `batch_maskclose_gated.py` | 对 data3 softedge 核批量跑门控 maskclose |
+| `postprocess_seg.py` | 投票后处理；门控 `n_views≤30 ∧ n_selected<7000` → **mask-jury** |
+| `batch_maskclose_gated.py` | 对 data3 softedge 核批量跑同上门控（命中为 mask-jury） |
 | `frustum_segment.py`（大幅增强） | 两次视线加权 softedge（白集>0.03 / 终选>0.15）、遮挡与扇区等 |
-| `run_bridge_e2e.py`（增强） | vote 后自动门控 maskclose 再 inject；`--force-maskclose` / `--no-maskclose` |
+| `run_bridge_e2e.py`（增强） | 选框默认同 `mask_grounding`；vote 后门控 mask-jury（少视角低选点）再 inject |
 | `visible_mask.py` | 物体期望逆深度修剪 mask，按删比例标遮挡 |
 | `render_object_invdepth.py` | 只光栅选中高斯 → 与 `depth_raw` 同定义的期望逆深度（envGS） |
 | `render_object_weight.py` | 全图物体权重可视化（不读 SAM） |
@@ -21,7 +21,7 @@
 | `overlay_ray_occlusion.py` | 射线遮挡叠图（露出/挡住） |
 | `export_ray_visible.py` | 由旧投票点云导出可见掩码与微调坐标 |
 | `export_data3_sft.py` | data3 厨房 → 可见质心 SFT 包（对齐 data2_sft_ray 布局） |
-| `select_nearby_views.py` | 邻视角召回（e2e 不调用，留给以后选视角） |
+| `select_nearby_views.py` | 邻视角选取（e2e 不调用；后续 SFT/扩充微调数据集做视角选取扩充） |
 | `view_lists.py` | 显式删 kept / labels 视角 |
 | `bbox_keys.py` | 训练目录名 → `bbox_data2.json` 键 |
 | `repo_paths.py` | 相对仓库根写路径；读相对 / Win 绝对 / WSL `/mnt/...` |

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""从一个种子视角选出仍看着同一块表面的邻视角。
+"""邻视角选取（standalone，不进 e2e）。
 
-端到端不调用。带方位的指代只送一张图。这个脚本留到以后做微调数据选视角。
+【用途 / 何时用】
+- **现在**：带方位指代默认单图 ``--views N``，本模块**不要**接到 ``run_bridge_e2e``，
+  也不要用多邻视角融合种子（旧 ``sel004_*`` / ``rightmost_*`` 试验包已删）。
+- **以后**：做 **SFT / 扩充微调数据集** 时，用本脚本按种子视角挑仍看着同一表面的邻视角，
+  做视角选取与样本扩充（多视角指代/投影多样性），再另开数据导出流程。
 
-用种子图已有的 depth_raw 抽点反投影，再投进其他相机。
-不新渲染。召回率是种子表面点仍落在候选画面内的比例。
-幅宽比是候选相机到这些点的中位距离除以种子的中位距离（同一视场角下幅宽正比于距离）。
-视线绕房间竖直方向取有符号夹角。种子留在选出集合的中位，两侧各取同样张数，单侧不超过 45°。
+【算法摘要】
+用种子图已有的 depth_raw 抽点反投影，再投进其他相机；不新渲染。
+召回率 = 种子表面点仍落在候选画面内的比例；
+幅宽比 = 候选相机到这些点的中位距离 / 种子中位距离（同 FOV 下幅宽∝距离）；
+视线绕竖直轴取有符号夹角。种子留在选出集合中位，两侧等张数，单侧不超过 45°。
 """
 from __future__ import annotations
 
@@ -295,7 +300,11 @@ def _pick_side(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="从种子视角选出仍看着同一块表面的邻视角")
+    parser = argparse.ArgumentParser(
+        description=(
+            "邻视角选取（standalone）。e2e 不用；留给后续 SFT/扩充微调数据集时做视角选取扩充。"
+        )
+    )
     parser.add_argument("--views-root", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=4, help="种子视角编号，默认 4（view_004）")
     parser.add_argument("--count", type=int, default=11, help="含种子在内的张数，两侧均分，默认 11")
