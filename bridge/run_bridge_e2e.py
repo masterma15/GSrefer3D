@@ -4,9 +4,9 @@
 跨环境：本进程（envGS）只 subprocess / WSL，不 import 3DGS raster 或 SAM。
 ``P_world`` / ``fused.json`` 只作 mask 种子，3D 结果是 ``gaussian_seg.json``。
 
-vote 默认两次视线加权（softedge）后做 **门控 maskclose**：选点极少或少视角欠完整才补点，
-否则保持 softedge；最终 ``gaussian_seg.json`` + ``iteration_seg_<name>`` 都是门控后的结果。
-``--force-maskclose`` 绕过门控一律补点；``--no-maskclose`` 只 inject 投票结果。
+vote 默认两次视线加权（softedge）。随后 **门控后处理**：``n_views≤30`` 且
+``n_selected<7000`` 时跑 **mask-jury**（多帧高置信删杂散 + 密度补点），否则保持 softedge。
+``--force-maskclose`` 绕过门控强制 mask-jury；``--no-maskclose`` 只 inject 投票结果。
 
 带方位的指代用 ``--views`` 只送一张图，点按该像素深度反投影，不再选邻视角。
 邻视角算法在 ``select_nearby_views.py``，端到端不调用，留作以后微调数据选视角。
@@ -15,7 +15,7 @@ vote 默认两次视线加权（softedge）后做 **门控 maskclose**：选点�
 产物::
 
     <out-dir>/                  question.json, mask/, gaussian_seg.json, fused.json
-                                （另存 gaussian_seg_softedge.json；门控命中时 gaussian_seg 为 maskclose）
+                                （另存 gaussian_seg_softedge.json；门控命中时 gaussian_seg 为 mask-jury）
     <views>/runs/<run_id>/      predictions.json, fused.json, gaussian_seg_white.json, overlays
     <model>/point_cloud/iteration_seg_<name>/
 """
@@ -351,6 +351,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--grounding-text-threshold", type=float, default=0.12)
     ap.add_argument("--anchor-box-radius", type=int, default=64)
     ap.add_argument("--max-box-area-ratio", type=float, default=0.35)
+    # 选框打分默认与 mask_grounding / gen_training_data 一致（整机框优先，避免零件小框）
+    ap.add_argument("--contain-bonus", type=float, default=0.18)
+    ap.add_argument("--compact-box-weight", type=float, default=0.10)
+    ap.add_argument("--large-box-penalty", type=float, default=0.12)
+    ap.add_argument("--large-box-area-start", type=float, default=0.15)
+    ap.add_argument("--area-penalty", type=float, default=0.12)
+    ap.add_argument("--tiny-box-penalty", type=float, default=0.40)
+    ap.add_argument("--dino-score-weight", type=float, default=0.50)
+    ap.add_argument("--near-score-weight", type=float, default=0.40)
+    ap.add_argument("--near-dist-sigma", type=float, default=50.0)
+    ap.add_argument("--min-box-area-ratio", type=float, default=0.003)
     ap.add_argument("--review-alpha", type=float, default=0.45)
     ap.add_argument(
         "--vote-frac",
@@ -361,12 +372,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--force-maskclose",
         action="store_true",
-        help="vote 后绕过门控，一律跑 maskclose（需默认 pair 投票的白集）",
+        help="vote 后绕过门控，强制跑 mask-jury（需默认 pair 投票的白集）",
     )
     ap.add_argument(
         "--no-maskclose",
         action="store_true",
-        help="vote 后不做 maskclose，直接 inject softedge/投票结果",
+        help="vote 后不做门控后处理，直接 inject softedge/投票结果",
     )
     return ap.parse_args(argv)
 
@@ -583,6 +594,16 @@ def main(argv: list[str] | None = None) -> None:
             grounding_text_threshold=args.grounding_text_threshold,
             anchor_box_radius=args.anchor_box_radius,
             max_box_area_ratio=args.max_box_area_ratio,
+            contain_bonus=args.contain_bonus,
+            compact_box_weight=args.compact_box_weight,
+            large_box_penalty=args.large_box_penalty,
+            large_box_area_start=args.large_box_area_start,
+            area_penalty=args.area_penalty,
+            tiny_box_penalty=args.tiny_box_penalty,
+            dino_score_weight=args.dino_score_weight,
+            near_score_weight=args.near_score_weight,
+            near_dist_sigma=args.near_dist_sigma,
+            min_box_area_ratio=args.min_box_area_ratio,
             use_kept=use_kept,
         )
         if args.use_wsl:
@@ -671,29 +692,32 @@ def main(argv: list[str] | None = None) -> None:
         if n_sel <= 0:
             raise SystemExit("vote selected 0 Gaussians")
 
-        # softedge 备份；门控命中时 gaussian_seg.json 会被 maskclose 覆盖。
+        # softedge 备份；门控命中时 gaussian_seg.json 会被 mask-jury 覆盖。
         softedge_bak = out_dir / "gaussian_seg_softedge.json"
         shutil.copy2(seg_path, softedge_bak)
         white_path = run_dir / "gaussian_seg_white.json"
         maskclose_meta: dict[str, Any] = {
             "mode": "off",
             "enabled": False,
+            "postprocess": "mask_jury",
             "softedge_backup": str(softedge_bak).replace("\\", "/"),
             "white": str(white_path).replace("\\", "/"),
         }
         if args.no_maskclose:
             maskclose_meta["mode"] = "disabled"
-            print("[e2e] maskclose skipped (--no-maskclose)", flush=True)
+            print("[e2e] postprocess skipped (--no-maskclose)", flush=True)
         elif args.vote_frac is not None:
             maskclose_meta["mode"] = "skipped_legacy_vote_frac"
-            print("[e2e] maskclose skipped (legacy --vote-frac has no softedge white)", flush=True)
+            print("[e2e] postprocess skipped (legacy --vote-frac has no softedge white)", flush=True)
         elif not white_path.is_file():
             maskclose_meta["mode"] = "skipped_no_white"
-            print(f"[e2e] maskclose skipped (missing {white_path})", flush=True)
+            print(f"[e2e] postprocess skipped (missing {white_path})", flush=True)
         else:
-            from postprocess_seg import mask_direct_vote, maskclose_gate_from_core
+            from postprocess_seg import mask_jury_vote, maskclose_gate_from_core
 
-            enable, reason, n_gate_sel, n_gate_views = maskclose_gate_from_core(seg)
+            enable, reason, n_gate_sel, n_gate_views = maskclose_gate_from_core(
+                seg, object_dir=out_dir
+            )
             if args.force_maskclose:
                 enable = True
                 reason = f"force_maskclose({reason})"
@@ -704,12 +728,12 @@ def main(argv: list[str] | None = None) -> None:
             maskclose_meta["n_selected"] = n_gate_sel
             maskclose_meta["n_views_used"] = n_gate_views
             print(
-                f"[e2e] maskclose gate enable={enable} reason={reason} "
+                f"[e2e] postprocess gate enable={enable} reason={reason} "
                 f"n_selected={n_gate_sel} n_views={n_gate_views}",
                 flush=True,
             )
             if enable:
-                out = mask_direct_vote(
+                out = mask_jury_vote(
                     softedge_bak,
                     white_path,
                     obj_dir=out_dir,
@@ -725,7 +749,7 @@ def main(argv: list[str] | None = None) -> None:
                 n_sel = int(seg.get("n_selected") or 0)
                 maskclose_meta["enabled"] = True
                 maskclose_meta["n_selected_after"] = n_sel
-                print(f"[e2e] maskclose selected={n_sel}", flush=True)
+                print(f"[e2e] mask-jury selected={n_sel}", flush=True)
             else:
                 print("[e2e] keep softedge (gate skip)", flush=True)
         manifest["maskclose"] = maskclose_meta

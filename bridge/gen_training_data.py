@@ -107,6 +107,14 @@ def stage_mask(args: argparse.Namespace) -> None:
 
     out_dir = Path(args.out)
     records = _load_projections(out_dir, use_kept=bool(getattr(args, "use_kept", False)))
+    view_filter: set[str] | None = None
+    raw_ids = getattr(args, "view_ids", None)
+    if raw_ids:
+        view_filter = {str(x).strip().zfill(3) for x in str(raw_ids).split(",") if str(x).strip()}
+        records = [r for r in records if str(r["view_id"]).zfill(3) in view_filter]
+        if not records:
+            raise SystemExit(f"--view-ids {raw_ids!r} 在投影里没有匹配视角")
+        print(f"[mask] view filter: {sorted(view_filter)} ({len(records)} projections)")
     mask_dir = out_dir / "mask"
     mask_dir.mkdir(exist_ok=True)
 
@@ -216,14 +224,24 @@ def stage_mask(args: argparse.Namespace) -> None:
             entry["mask_meta"] = meta
         qa_records.append(entry)
 
-    (out_dir / "question.json").write_text(
-        json.dumps(qa_records, indent=2, ensure_ascii=False)
-    )
+    q_path = out_dir / "question.json"
+    if view_filter is not None and q_path.is_file():
+        existing = json.loads(q_path.read_text(encoding="utf-8"))
+        by_vid = {str(r.get("view_id")).zfill(3): r for r in existing}
+        for entry in qa_records:
+            by_vid[str(entry["view_id"]).zfill(3)] = entry
+        merged = list(by_vid.values())
+        for i, rec in enumerate(merged):
+            rec["id"] = i
+        q_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[mask] merged {len(qa_records)} views into {q_path} (total {len(merged)})")
+    else:
+        q_path.write_text(json.dumps(qa_records, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"[mask] {len(qa_records)} samples -> {out_dir}")
     if skips:
         skip_path = out_dir / "mask_skips.json"
         skip_path.write_text(json.dumps(skips, indent=2), encoding="utf-8")
         print(f"[mask] skips {len(skips)} -> {skip_path}")
-    print(f"[mask] {len(qa_records)} samples -> {out_dir}")
 
 
 def stage_refine(args: argparse.Namespace) -> None:
@@ -326,10 +344,10 @@ def main() -> None:
     ap.add_argument("--dino-score-weight", type=float, default=0.50)
     ap.add_argument("--near-score-weight", type=float, default=0.40)
     ap.add_argument("--near-dist-sigma", type=float, default=50.0)
-    ap.add_argument("--contain-bonus", type=float, default=0.06)
+    ap.add_argument("--contain-bonus", type=float, default=0.18)
     ap.add_argument("--area-penalty", type=float, default=0.12)
     ap.add_argument("--tiny-box-penalty", type=float, default=0.40)
-    ap.add_argument("--compact-box-weight", type=float, default=0.28)
+    ap.add_argument("--compact-box-weight", type=float, default=0.10)
     ap.add_argument(
         "--large-box-area-start",
         type=float,
@@ -339,8 +357,14 @@ def main() -> None:
     ap.add_argument(
         "--large-box-penalty",
         type=float,
-        default=0.38,
-        help="Penalty when a box is larger than the median candidate; boxes above --max-box-area-ratio are dropped",
+        default=0.12,
+        help="轻扣大于中位数的框；过大惩罚会把整机拆成零件小框",
+    )
+    ap.add_argument(
+        "--view-ids",
+        type=str,
+        default=None,
+        help="仅重跑这些视角（逗号分隔，如 041,030）；写入 mask 并合并进已有 question.json",
     )
     ap.add_argument(
         "--prefer-containing-point",

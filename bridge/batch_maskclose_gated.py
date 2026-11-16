@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""对 training_data 里 data3 softedge 核批量跑门控 maskclose。
+"""对 training_data 里 data3 softedge 核批量跑门控后处理（现行：mask-jury）。
 
 发现顺序（每个 ``data3_*`` 物体目录，跳过 ``_s0xx`` 变体目录名）：
 1. ``<obj>/试验_pair_softedge/{gaussian_seg,gaussian_seg_white}.json``
 2. 否则 ``by_object/<obj>/试验_pair_softedge/...``（``--obj-dir`` 仍用 ``training_data/<obj>``）
 
-门控命中 → ``试验_gated_maskclose/gaussian_seg.json`` + 可选注入 ``seg_<name>_maskclose``；
+门控：``n_views ≤ 30`` 且 ``n_selected < 7000`` 才开启。
+命中 → ``试验_gated_maskclose/gaussian_seg.json``（内容为 mask-jury）+ 可选注入；
 未命中 → 同目录写出 softedge 副本（mode=gated_skip），默认不注入。
 """
 from __future__ import annotations
@@ -24,7 +25,6 @@ if str(_REPO / "bridge") not in sys.path:
 from postprocess_seg import (  # noqa: E402
     MASKCLOSE_FEW_VIEWS_MAX,
     MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX,
-    MASKCLOSE_N_SELECTED_MAX,
     maskclose_gate_from_core,
 )
 
@@ -75,7 +75,9 @@ def discover_jobs(training_root: Path) -> list[dict[str, Path | str]]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="批量门控 maskclose（softedge → 条件补点）")
+    ap = argparse.ArgumentParser(
+        description="批量门控后处理（softedge → 少视角且选点偏少时 mask-jury）"
+    )
     ap.add_argument(
         "--training-root",
         type=Path,
@@ -109,8 +111,8 @@ def main() -> None:
         sys.exit(1)
 
     print(
-        f"[batch] gate A: n_selected<{MASKCLOSE_N_SELECTED_MAX}; "
-        f"B: n_views<={MASKCLOSE_FEW_VIEWS_MAX} & n_selected<{MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX}",
+        f"[batch] gate: n_views<={MASKCLOSE_FEW_VIEWS_MAX} and "
+        f"n_selected<{MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX} → mask-jury",
         flush=True,
     )
     py = sys.executable
@@ -124,7 +126,9 @@ def main() -> None:
             print(f"[batch] FAIL {name}: core not object", flush=True)
             fail += 1
             continue
-        enable, reason, n_sel, n_views = maskclose_gate_from_core(payload)
+        enable, reason, n_sel, n_views = maskclose_gate_from_core(
+            payload, object_dir=job["obj_dir"]
+        )
         tag = "ENABLE" if enable else "SKIP"
         print(
             f"[batch] {tag} {name} reason={reason} n_selected={n_sel} n_views={n_views}",

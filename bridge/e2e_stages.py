@@ -190,6 +190,44 @@ def preflight_wsl(
     print("[preflight] WSL roborefer ok")
 
 
+def _mask_box_score_cli(
+    *,
+    contain_bonus: float,
+    compact_box_weight: float,
+    large_box_penalty: float,
+    large_box_area_start: float,
+    area_penalty: float,
+    tiny_box_penalty: float,
+    dino_score_weight: float,
+    near_score_weight: float,
+    near_dist_sigma: float,
+    min_box_area_ratio: float,
+) -> list[str]:
+    """与 mask_grounding / gen_training_data 默认对齐的选框打分 CLI。"""
+    return [
+        "--contain-bonus",
+        str(contain_bonus),
+        "--compact-box-weight",
+        str(compact_box_weight),
+        "--large-box-penalty",
+        str(large_box_penalty),
+        "--large-box-area-start",
+        str(large_box_area_start),
+        "--area-penalty",
+        str(area_penalty),
+        "--tiny-box-penalty",
+        str(tiny_box_penalty),
+        "--dino-score-weight",
+        str(dino_score_weight),
+        "--near-score-weight",
+        str(near_score_weight),
+        "--near-dist-sigma",
+        str(near_dist_sigma),
+        "--min-box-area-ratio",
+        str(min_box_area_ratio),
+    ]
+
+
 def run_mask_wsl(
     *,
     out_dir: Path,
@@ -203,6 +241,16 @@ def run_mask_wsl(
     grounding_text_threshold: float,
     anchor_box_radius: int,
     max_box_area_ratio: float,
+    contain_bonus: float = 0.18,
+    compact_box_weight: float = 0.10,
+    large_box_penalty: float = 0.12,
+    large_box_area_start: float = 0.15,
+    area_penalty: float = 0.12,
+    tiny_box_penalty: float = 0.40,
+    dino_score_weight: float = 0.50,
+    near_score_weight: float = 0.40,
+    near_dist_sigma: float = 50.0,
+    min_box_area_ratio: float = 0.003,
     use_kept: bool = False,
 ) -> None:
     wsl_repo = to_wsl_path(REPO)
@@ -235,6 +283,18 @@ def run_mask_wsl(
         str(anchor_box_radius),
         "--max-box-area-ratio",
         str(max_box_area_ratio),
+        *_mask_box_score_cli(
+            contain_bonus=contain_bonus,
+            compact_box_weight=compact_box_weight,
+            large_box_penalty=large_box_penalty,
+            large_box_area_start=large_box_area_start,
+            area_penalty=area_penalty,
+            tiny_box_penalty=tiny_box_penalty,
+            dino_score_weight=dino_score_weight,
+            near_score_weight=near_score_weight,
+            near_dist_sigma=near_dist_sigma,
+            min_box_area_ratio=min_box_area_ratio,
+        ),
     ]
     if use_kept:
         mask_cmd.append("--use-kept")
@@ -268,6 +328,16 @@ def run_mask_local(
     grounding_text_threshold: float,
     anchor_box_radius: int,
     max_box_area_ratio: float,
+    contain_bonus: float = 0.18,
+    compact_box_weight: float = 0.10,
+    large_box_penalty: float = 0.12,
+    large_box_area_start: float = 0.15,
+    area_penalty: float = 0.12,
+    tiny_box_penalty: float = 0.40,
+    dino_score_weight: float = 0.50,
+    near_score_weight: float = 0.40,
+    near_dist_sigma: float = 50.0,
+    min_box_area_ratio: float = 0.003,
     use_kept: bool = False,
 ) -> None:
     cmd = [
@@ -297,6 +367,18 @@ def run_mask_local(
         str(anchor_box_radius),
         "--max-box-area-ratio",
         str(max_box_area_ratio),
+        *_mask_box_score_cli(
+            contain_bonus=contain_bonus,
+            compact_box_weight=compact_box_weight,
+            large_box_penalty=large_box_penalty,
+            large_box_area_start=large_box_area_start,
+            area_penalty=area_penalty,
+            tiny_box_penalty=tiny_box_penalty,
+            dino_score_weight=dino_score_weight,
+            near_score_weight=near_score_weight,
+            near_dist_sigma=near_dist_sigma,
+            min_box_area_ratio=min_box_area_ratio,
+        ),
     ]
     if use_kept:
         cmd.append("--use-kept")

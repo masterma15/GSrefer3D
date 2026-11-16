@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """投票结果的后处理。
 
-默认/批量/e2e 走门控：``--gated-maskclose``（或 e2e vote 后自动门控）。
-命中才跑 maskclose（掩码白集补点 → 清支 → 全场闭包 → 再清支），否则保留 softedge。
+默认/批量/e2e 走门控：``n_views ≤ 30`` 且 ``n_selected < 7000`` 才后处理，否则保留 softedge。
+（少视角且选点仍偏少，覆盖中间剪刀；同档左/右剪、药瓶选点过万则跳过。）
+门控命中时跑 **mask-jury**（多帧高置信 mask 删杂散 + 密度主门控补点）。
 
-``--mask-direct`` / e2e ``--force-maskclose``：调试对照时绕过门控一律补点，不是默认路径。
+``--mask-direct`` / e2e ``--force-maskclose``：绕过门控强制后处理（force 在 e2e 也走 mask-jury；
+CLI ``--mask-direct`` 仍为旧 maskclose 补点对照）。
 
-另有一套按弱连接块挑选的接口，供对照，不是这条默认试验路径。
+``--mask-jury``：显式跑 mask-jury，不看门控。
+
+另有一套按弱连接块挑选的接口，供对照，不是默认路径。
 """
 from __future__ import annotations
 
@@ -49,10 +53,22 @@ STICK_LAMBDA21 = 0.35
 # 外缘一次最多剥掉这块的 20%。再多，或者会拆成两大块，就整步取消。
 PEEL_MAX_FRAC = 0.20
 MASK_FG = 128
-# maskclose 门控（相对 softedge 核）：极端欠选，或少视角且仍欠完整。
-MASKCLOSE_N_SELECTED_MAX = 1500
+# 后处理门控：少视角 ∧ 选点仍偏少 → mask-jury。
 MASKCLOSE_FEW_VIEWS_MAX = 30
-MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX = 4500
+MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX = 7000
+# 旧「极端欠选」阈值，现行门控不再单独使用；保留给历史引用。
+MASKCLOSE_N_SELECTED_MAX = 1500
+# 已废弃的名字门控子串（勿再用于判定）。
+POSTPROCESS_GATE_NAME_SUBSTR = "middle_scissors"
+# mask-jury：高置信视角集 + 删点多数决 + 密度主门控补点
+MASK_JURY_SCORE_FLOOR = 0.50
+MASK_JURY_MAX_VIEWS = 5
+MASK_JURY_KEEP_FRAC = 0.5
+MASK_JURY_DIST_MAX = 20.0
+MASK_JURY_IOU_MIN = 0.35
+MASK_JURY_DENSE_RADIUS = 2.0 * MASK_GROW_RADIUS
+MASK_JURY_MIN_DENSE = 8
+MASK_JURY_LINK_RADIUS = MASK_GROW_RADIUS
 
 
 @dataclass(frozen=True)
@@ -590,6 +606,174 @@ def best_select_view(rows: list[dict[str, Any]]) -> tuple[str, float]:
     return best_id, best_score
 
 
+def _view_mask_quality_ok(row: dict[str, Any]) -> bool:
+    meta = row.get("mask_meta") or {}
+    if bool(meta.get("point_in_mask")):
+        return True
+    dist = meta.get("dist_to_mask")
+    if dist is not None and float(dist) <= MASK_JURY_DIST_MAX:
+        return True
+    iou = meta.get("box_mask_iou")
+    if iou is not None and float(iou) >= MASK_JURY_IOU_MIN:
+        return True
+    return False
+
+
+def select_jury_views(
+    rows: list[dict[str, Any]],
+    *,
+    obj_dir: Path,
+    score_floor: float = MASK_JURY_SCORE_FLOOR,
+    max_views: int = MASK_JURY_MAX_VIEWS,
+) -> tuple[list[tuple[str, float]], str]:
+    """高置信 mask 视角：score 下限 + 质量过滤，最多 ``max_views``。
+
+    返回 ``([(view_id, score), ...], fallback_reason)``。
+    ``fallback_reason`` 为空表示正常；``best_only`` 表示过滤后为空、回退最高分一帧。
+    """
+    scored: list[tuple[str, float]] = []
+    for row in rows:
+        boxes = (row.get("mask_meta") or {}).get("ranked_boxes") or []
+        if not boxes or "view_id" not in row:
+            continue
+        score = float(boxes[0].get("select_score") or -1e9)
+        if score < float(score_floor):
+            continue
+        if not _view_mask_quality_ok(row):
+            continue
+        vid = str(row["view_id"]).zfill(3)
+        if not (obj_dir / "mask" / f"view_{vid}.png").is_file():
+            continue
+        scored.append((vid, score))
+    scored.sort(key=lambda x: -x[1])
+    # 同 view 去重，保留最高分
+    seen: set[str] = set()
+    uniq: list[tuple[str, float]] = []
+    for vid, score in scored:
+        if vid in seen:
+            continue
+        seen.add(vid)
+        uniq.append((vid, score))
+        if len(uniq) >= int(max_views):
+            break
+    if uniq:
+        return uniq, ""
+    best_id, best_score = best_select_view(rows)
+    vid = str(best_id).zfill(3)
+    if not (obj_dir / "mask" / f"view_{vid}.png").is_file():
+        raise FileNotFoundError(f"回退视角 mask 不存在: view_{vid}.png")
+    return [(vid, float(best_score))], "best_only"
+
+
+def load_view_cams_masks(
+    view_ids: list[str],
+    *,
+    obj_dir: Path,
+    views_root: Path,
+) -> tuple[list[CameraView], list[np.ndarray], list[str]]:
+    from PIL import Image
+
+    cams: list[CameraView] = []
+    masks: list[np.ndarray] = []
+    kept: list[str] = []
+    for vid in view_ids:
+        cam_path = views_root / "camera_params" / f"view_{vid}.json"
+        mask_path = obj_dir / "mask" / f"view_{vid}.png"
+        if not cam_path.is_file() or not mask_path.is_file():
+            continue
+        cams.append(CameraView.from_json(cam_path))
+        masks.append(np.asarray(Image.open(mask_path).convert("L")))
+        kept.append(vid)
+    if not cams:
+        raise FileNotFoundError("没有可用的 camera/mask 视角")
+    return cams, masks, kept
+
+
+def mask_hit_vis_counts(
+    xyz: np.ndarray,
+    cams: list[CameraView],
+    masks: list[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """每个点在多视上的 mask 命中数 / 可投影数。"""
+    n = int(xyz.shape[0])
+    n_hit = np.zeros(n, dtype=np.int32)
+    n_vis = np.zeros(n, dtype=np.int32)
+    if n == 0 or not cams:
+        return n_hit, n_vis
+    for cam, mask in zip(cams, masks):
+        in_frame, inside = frame_and_mask(xyz, cam, mask)
+        n_vis += in_frame.astype(np.int32)
+        n_hit += (in_frame & inside).astype(np.int32)
+    return n_hit, n_vis
+
+
+def jury_delete_keep_mask(
+    xyz: np.ndarray,
+    cams: list[CameraView],
+    masks: list[np.ndarray],
+    *,
+    keep_frac: float = MASK_JURY_KEEP_FRAC,
+    min_vis: int = 2,
+) -> np.ndarray:
+    """返回与 ``xyz`` 同长的 bool：True 保留。"""
+    n_hit, n_vis = mask_hit_vis_counts(xyz, cams, masks)
+    keep = np.ones(int(xyz.shape[0]), dtype=bool)
+    enough = n_vis >= int(min_vis)
+    ratio = np.zeros(int(xyz.shape[0]), dtype=np.float64)
+    ratio[enough] = n_hit[enough] / np.maximum(n_vis[enough], 1)
+    keep[enough & (ratio < float(keep_frac))] = False
+    return keep
+
+
+def density_mask_fill(
+    core_xyz: np.ndarray,
+    core_index: np.ndarray,
+    pool_xyz: np.ndarray,
+    pool_index: np.ndarray,
+    cams: list[CameraView],
+    masks: list[np.ndarray],
+    *,
+    dense_radius: float = MASK_JURY_DENSE_RADIUS,
+    min_dense: int = MASK_JURY_MIN_DENSE,
+    link_radius: float = MASK_JURY_LINK_RADIUS,
+) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """密度主门控补点：核邻域够密，且至少一视 mask 命中。
+
+    返回 ``(sel_xyz, sel_index, n_added, n_rejected)``。
+    """
+    core_xyz = np.asarray(core_xyz, dtype=np.float64)
+    core_index = np.asarray(core_index, dtype=np.int64)
+    pool_xyz = np.asarray(pool_xyz, dtype=np.float64)
+    pool_index = np.asarray(pool_index, dtype=np.int64)
+    if core_index.size == 0 or pool_index.size == 0:
+        return core_xyz.copy(), core_index.copy(), 0, int(pool_index.size)
+
+    have = {int(i) for i in core_index.tolist()}
+    fresh = np.array([int(i) not in have for i in pool_index.tolist()], dtype=bool)
+    pool_xyz = pool_xyz[fresh]
+    pool_index = pool_index[fresh]
+    if pool_index.size == 0:
+        return core_xyz.copy(), core_index.copy(), 0, 0
+
+    n_hit, n_vis = mask_hit_vis_counts(pool_xyz, cams, masks)
+    mask_ok = (n_vis >= 1) & (n_hit >= 1)
+
+    tree = cKDTree(core_xyz)
+    # 邻居数（不含自身；候选不在树上）
+    neigh = tree.query_ball_point(pool_xyz, r=float(dense_radius))
+    dense_ok = np.array([len(ids) >= int(min_dense) for ids in neigh], dtype=bool)
+    link_ok = np.array([len(ids) >= 1 for ids in tree.query_ball_point(pool_xyz, r=float(link_radius))], dtype=bool)
+
+    take = mask_ok & dense_ok & link_ok
+    n_added = int(np.count_nonzero(take))
+    n_rejected = int(pool_index.size - n_added)
+    if n_added == 0:
+        return core_xyz.copy(), core_index.copy(), 0, n_rejected
+    sel_xyz = np.concatenate([core_xyz, pool_xyz[take]])
+    sel_index = np.concatenate([core_index, pool_index[take]])
+    return sel_xyz, sel_index, n_added, n_rejected
+
+
 def _load_json(path: Path) -> dict[str, Any] | list[Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -832,36 +1016,136 @@ def mask_direct_vote(
     return out
 
 
-def should_run_maskclose(
-    n_selected: int | None,
-    n_views_used: int | None,
+def mask_jury_vote(
+    base_json: Path,
+    white_json: Path | None,
     *,
+    obj_dir: Path,
+    out_json: Path,
+    score_floor: float = MASK_JURY_SCORE_FLOOR,
+    max_views: int = MASK_JURY_MAX_VIEWS,
+    keep_frac: float = MASK_JURY_KEEP_FRAC,
+    dense_radius: float = MASK_JURY_DENSE_RADIUS,
+    min_dense: int = MASK_JURY_MIN_DENSE,
+) -> dict[str, Any]:
+    """多帧高置信 mask 删点 + 密度主门控补点（白集可选）。"""
+    from ray_visibility import load_ply_xyz
+
+    base_payload = _load_json(base_json)
+    if not isinstance(base_payload, dict):
+        raise TypeError("gaussian_seg.json 应为对象")
+    question = _load_json(obj_dir / "question.json")
+    if not isinstance(question, list):
+        raise TypeError("question.json 应为列表")
+
+    jury, fallback = select_jury_views(
+        question, obj_dir=obj_dir, score_floor=score_floor, max_views=max_views
+    )
+    views_root = _views_root(base_payload)
+    cams, masks, jury_ids = load_view_cams_masks(
+        [v for v, _ in jury], obj_dir=obj_dir, views_root=views_root
+    )
+    jury_scores = {vid: sc for vid, sc in jury}
+
+    ply_path = resolve_data_path(base_payload["ply"])
+    xyz = load_ply_xyz(ply_path)
+    base_index = np.asarray(base_payload["indices"], dtype=np.int64)
+    base_xyz = xyz[base_index]
+
+    keep = jury_delete_keep_mask(base_xyz, cams, masks, keep_frac=keep_frac)
+    kept_index = base_index[keep]
+    kept_xyz = base_xyz[keep]
+    n_deleted = int((~keep).sum())
+
+    n_added = 0
+    n_rejected_fill = 0
+    if white_json is not None and Path(white_json).is_file() and kept_index.size > 0:
+        white_payload = _load_json(white_json)
+        if not isinstance(white_payload, dict):
+            raise TypeError("gaussian_seg_white.json 应为对象")
+        white_index = np.setdiff1d(
+            np.asarray(white_payload["indices"], dtype=np.int64),
+            kept_index,
+            assume_unique=False,
+        )
+        # 补点 mask：优先 Jury；若某点在 Jury 上全不可见，用同一套 Jury 统计即可（n_vis=0 则不补）
+        kept_xyz, kept_index, n_added, n_rejected_fill = density_mask_fill(
+            kept_xyz,
+            kept_index,
+            xyz[white_index],
+            white_index,
+            cams,
+            masks,
+            dense_radius=dense_radius,
+            min_dense=min_dense,
+        )
+
+    final_index = np.unique(kept_index)
+    out = dict(base_payload)
+    out["indices"] = final_index.astype(int).tolist()
+    out["n_selected"] = int(final_index.size)
+    out["centroid"] = (
+        xyz[final_index].mean(axis=0).tolist() if final_index.size else base_payload.get("centroid")
+    )
+    out["postprocess"] = {
+        "mode": "mask_jury",
+        "jury_views": [
+            {"view_id": vid, "select_score": float(jury_scores.get(vid, 0.0))} for vid in jury_ids
+        ],
+        "jury_fallback": fallback or None,
+        "mask_score_floor": float(score_floor),
+        "mask_keep_frac": float(keep_frac),
+        "dense_radius_scene": float(dense_radius),
+        "min_dense_count": int(min_dense),
+        "n_base": int(base_index.size),
+        "n_deleted_mask": n_deleted,
+        "n_added_gated": n_added,
+        "n_rejected_fill": n_rejected_fill,
+        "n_selected": int(final_index.size),
+    }
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(
+        f"[jury] views={jury_ids} fallback={fallback or '-'} "
+        f"base={base_index.size} del={n_deleted} add={n_added} "
+        f"reject_fill={n_rejected_fill} selected={final_index.size} -> {out_json}",
+        flush=True,
+    )
+    return out
+
+
+def should_run_maskclose(
+    n_selected: int | None = None,
+    n_views_used: int | None = None,
+    *,
+    object_dir: str | Path | None = None,
     n_selected_max: int = MASKCLOSE_N_SELECTED_MAX,
     few_views_max: int = MASKCLOSE_FEW_VIEWS_MAX,
     few_views_n_selected_max: int = MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX,
 ) -> tuple[bool, str]:
-    """是否对 softedge 核跑 maskclose。
+    """是否对 softedge 核跑后处理（e2e/门控默认：mask-jury）。
 
-    (A) ``n_selected < n_selected_max``：极端欠选（如右筷）。
-    (B) ``n_views_used <= few_views_max`` 且 ``n_selected < few_views_n_selected_max``：
-        少视角欠完整（如中间剪刀）；同组视角少但选点已过万的不开。
+    现行：``n_views_used ≤ few_views_max`` 且 ``n_selected < few_views_n_selected_max``。
+    ``object_dir`` / ``n_selected_max`` 保留签名兼容，不参与判定。
     """
+    _ = (object_dir, n_selected_max)
     if n_selected is None:
         return False, "missing_n_selected"
+    if n_views_used is None:
+        return False, "missing_n_views"
     n_sel = int(n_selected)
-    if n_sel < int(n_selected_max):
-        return True, f"n_selected<{int(n_selected_max)}"
-    n_views = None if n_views_used is None else int(n_views_used)
-    if (
-        n_views is not None
-        and n_views <= int(few_views_max)
-        and n_sel < int(few_views_n_selected_max)
-    ):
+    n_views = int(n_views_used)
+    if n_views <= int(few_views_max) and n_sel < int(few_views_n_selected_max):
         return True, f"few_views<={int(few_views_max)}_and_n_selected<{int(few_views_n_selected_max)}"
     return False, "softedge_ok"
 
 
-def maskclose_gate_from_core(core_payload: dict[str, Any], **kwargs: Any) -> tuple[bool, str, int | None, int | None]:
+def maskclose_gate_from_core(
+    core_payload: dict[str, Any],
+    *,
+    object_dir: str | Path | None = None,
+    **kwargs: Any,
+) -> tuple[bool, str, int | None, int | None]:
     """从 softedge ``gaussian_seg.json`` 读选点数/视角数并门控。"""
     n_sel = core_payload.get("n_selected")
     if n_sel is None and "indices" in core_payload:
@@ -870,6 +1154,7 @@ def maskclose_gate_from_core(core_payload: dict[str, Any], **kwargs: Any) -> tup
     enable, reason = should_run_maskclose(
         None if n_sel is None else int(n_sel),
         None if n_views is None else int(n_views),
+        object_dir=object_dir if object_dir is not None else core_payload.get("object_dir"),
         **kwargs,
     )
     return enable, reason, None if n_sel is None else int(n_sel), None if n_views is None else int(n_views)
@@ -894,7 +1179,6 @@ def write_gated_skip(
         "n_selected_core": n_selected,
         "n_views_used": n_views_used,
         "thresholds": {
-            "n_selected_max": MASKCLOSE_N_SELECTED_MAX,
             "few_views_max": MASKCLOSE_FEW_VIEWS_MAX,
             "few_views_n_selected_max": MASKCLOSE_FEW_VIEWS_N_SELECTED_MAX,
         },
@@ -948,9 +1232,14 @@ def inject_post(seg_json: Path, *, iteration_name: str) -> Path:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="投票点云后处理（maskclose / 门控 maskclose）")
+    ap = argparse.ArgumentParser(description="投票点云后处理（maskclose / 门控 maskclose / mask-jury）")
     ap.add_argument("--core", type=Path, required=True, help="分数 > 0.15 的 gaussian_seg.json")
-    ap.add_argument("--white", type=Path, required=True, help="分数 > 0.03 的 gaussian_seg_white.json")
+    ap.add_argument(
+        "--white",
+        type=Path,
+        default=None,
+        help="分数 > 0.03 的 gaussian_seg_white.json；--mask-jury 时可缺省（只删不补）",
+    )
     ap.add_argument("--out", type=Path, required=True, help="写出的 gaussian_seg.json")
     ap.add_argument("--inject", action="store_true", help="写完后注入 SIBR 迭代")
     ap.add_argument(
@@ -968,30 +1257,69 @@ def main() -> None:
         "--gated-maskclose",
         action="store_true",
         help=(
-            "门控 maskclose：n_selected<1500，或 n_views<=30 且 n_selected<4500 时跑 maskclose；"
-            "否则写出 softedge 并跳过补点"
+            "门控后处理：n_views≤30 且 n_selected<7000 时跑 mask-jury；"
+            "否则写出 softedge 并跳过"
         ),
     )
+    ap.add_argument(
+        "--mask-jury",
+        action="store_true",
+        help="显式跑 mask-jury（多帧高置信删点 + 密度补点），不看门控",
+    )
+    ap.add_argument("--mask-score-floor", type=float, default=MASK_JURY_SCORE_FLOOR)
+    ap.add_argument("--mask-jury-max", type=int, default=MASK_JURY_MAX_VIEWS)
+    ap.add_argument("--mask-keep-frac", type=float, default=MASK_JURY_KEEP_FRAC)
+    ap.add_argument("--dense-radius", type=float, default=MASK_JURY_DENSE_RADIUS)
+    ap.add_argument("--min-dense-count", type=int, default=MASK_JURY_MIN_DENSE)
     ap.add_argument("--obj-dir", type=Path, default=None, help="物体目录，里面有 question.json 和 mask/")
     ap.add_argument("--radius", type=float, default=MASK_GROW_RADIUS, help="补点的场景单位半径，默认约 1.5 现实厘米")
     args = ap.parse_args()
-    if args.mask_direct and args.gated_maskclose:
-        ap.error("不要同时指定 --mask-direct 与 --gated-maskclose")
+    modes = [args.mask_direct, args.gated_maskclose, args.mask_jury]
+    if sum(bool(x) for x in modes) > 1:
+        ap.error("不要同时指定 --mask-direct / --gated-maskclose / --mask-jury")
+    if args.mask_direct or args.gated_maskclose:
+        if args.white is None:
+            ap.error("--mask-direct / --gated-maskclose 需要 --white")
     obj_dir = args.obj_dir if args.obj_dir is not None else _object_dir(args.core)
     ran_maskclose = False
     skipped = False
-    if args.gated_maskclose:
+    if args.mask_jury:
+        mask_jury_vote(
+            args.core,
+            args.white,
+            obj_dir=obj_dir,
+            out_json=args.out,
+            score_floor=args.mask_score_floor,
+            max_views=args.mask_jury_max,
+            keep_frac=args.mask_keep_frac,
+            dense_radius=args.dense_radius,
+            min_dense=args.min_dense_count,
+        )
+        ran_maskclose = True
+    elif args.gated_maskclose:
         core_payload = _load_json(args.core)
         if not isinstance(core_payload, dict):
             raise TypeError("gaussian_seg.json 应为对象")
-        enable, reason, n_sel, n_views = maskclose_gate_from_core(core_payload)
+        enable, reason, n_sel, n_views = maskclose_gate_from_core(
+            core_payload, object_dir=obj_dir
+        )
         print(
             f"[gate] enable={enable} reason={reason} n_selected={n_sel} n_views={n_views}",
             flush=True,
         )
         if enable:
-            out = mask_direct_vote(
-                args.core, args.white, obj_dir=obj_dir, out_json=args.out, radius=args.radius
+            if args.white is None:
+                raise SystemExit("门控命中需要 --white（mask-jury 密度补点）")
+            out = mask_jury_vote(
+                args.core,
+                args.white,
+                obj_dir=obj_dir,
+                out_json=args.out,
+                score_floor=args.mask_score_floor,
+                max_views=args.mask_jury_max,
+                keep_frac=args.mask_keep_frac,
+                dense_radius=args.dense_radius,
+                min_dense=args.min_dense_count,
             )
             pp = out.setdefault("postprocess", {})
             if isinstance(pp, dict):
@@ -1013,9 +1341,13 @@ def main() -> None:
         mask_direct_vote(args.core, args.white, obj_dir=obj_dir, out_json=args.out, radius=args.radius)
         ran_maskclose = True
     else:
+        if args.white is None:
+            ap.error("默认后处理需要 --white")
         postprocess_vote(args.core, args.white, out_json=args.out)
 
-    do_inject = bool(args.inject) and (ran_maskclose or (skipped and args.inject_on_skip) or not args.gated_maskclose)
+    do_inject = bool(args.inject) and (
+        ran_maskclose or (skipped and args.inject_on_skip) or not args.gated_maskclose
+    )
     if args.inject and args.gated_maskclose and skipped and not args.inject_on_skip:
         print("[gate] skip inject (softedge kept; pass --inject-on-skip to inject anyway)", flush=True)
     if do_inject:

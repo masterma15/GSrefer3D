@@ -112,18 +112,23 @@ def render_footprint_and_stain(
     """足迹只保留白集的不透明度；染色保留全部不透明度。各返回与相机顺序相同的图。"""
     import torch
 
+    idx_np = np.asarray(indices, dtype=np.int64).reshape(-1)
+    if idx_np.size == 0:
+        raise ValueError(
+            "白集为空，无法渲染 footprint/stain（全部不透明度置空会触发 CUDA 非法访问）"
+        )
+
     model = load_gaussian_model(ply)
     saved = None
     stains: list[np.ndarray] = []
     footprints: list[np.ndarray] = []
     try:
-        idx_np, saved_dc, saved_rest, saved_opacity = _prepare_white_set(model, indices)
+        idx_np, saved_dc, saved_rest, saved_opacity = _prepare_white_set(model, idx_np)
         saved = (saved_dc, saved_rest, saved_opacity)
         for cam in cams:
             stains.append(render_object_weight(model, cam))
         keep = torch.zeros(int(model.get_xyz.shape[0]), dtype=torch.bool, device=model._opacity.device)
-        if idx_np.size:
-            keep[torch.as_tensor(idx_np, device=model._opacity.device, dtype=torch.long)] = True
+        keep[torch.as_tensor(idx_np, device=model._opacity.device, dtype=torch.long)] = True
         model._opacity.data[~keep] = -50.0
         for cam in cams:
             footprints.append(render_object_weight(model, cam))
