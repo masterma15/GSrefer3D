@@ -57,7 +57,7 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
 
-def select_views_by_coverage(views, num_views=36):
+def select_views_by_coverage(views, num_views=108):
     """FPS on direction vectors (camera→scene_center) for uniform angular coverage."""
     if len(views) <= num_views:
         return views
@@ -80,7 +80,7 @@ def select_views_by_coverage(views, num_views=36):
 
     return [views[i] for i in selected]
 
-def render_custom_views(dataset, gaussians, pipeline, background, output_path, num_views: int = 36):
+def render_custom_views(dataset, gaussians, pipeline, background, output_path, num_views: int = 108):
     """渲染若干覆盖视角的 RGB + depth_raw + depth PNG + camera_params（view_000 …）。"""
     # 加载场景
     scene = Scene(dataset, gaussians, load_iteration=-1, shuffle=False)
@@ -172,9 +172,9 @@ if __name__ == "__main__":
     parser.add_argument("--custom_views", action="store_true", help="Render multi-view RGB-D pack under --output_path")
     parser.add_argument(
         "--num_custom_views",
-        default=36,
+        default=108,
         type=int,
-        help="How many views to select (FPS on camera directions). Default 36.",
+        help="How many views to select (FPS on camera directions). Default 108.",
     )
     parser.add_argument("--output_path", default="test1", type=str, help="Output path for custom views")
     args = get_combined_args(parser)
